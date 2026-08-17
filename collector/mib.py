@@ -184,6 +184,29 @@ def parse_interfaces(binds) -> dict[int, InterfaceInfo]:
     return ifaces
 
 
+def is_hardware_mac(mac: str | None) -> bool:
+    """
+    True only for burned-in addresses.
+
+    Bit 0x02 of the first octet is the locally-administered flag. Linux
+    bridges, veths and docker0 all set it and REGENERATE the address on
+    every container restart. Using one as a device identity anchor means
+    the device loses its identity the next time Docker restarts — the
+    exact failure identity resolution exists to prevent.
+    """
+    if not mac:
+        return False
+    try:
+        first = int(mac.split(":")[0], 16)
+    except (ValueError, IndexError):
+        return False
+    if first & 0x02:            # locally administered
+        return False
+    if mac == "00:00:00:00:00:00":
+        return False
+    return True
+
+
 def infer_vendor(sys_object_id: str | None, sys_descr: str | None) -> str | None:
     """
     Coarse vendor from enterprise OID. Small on purpose — this is a

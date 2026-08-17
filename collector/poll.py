@@ -66,12 +66,15 @@ def claims_for(sysinfo: mib.SystemInfo, ifaces, target: SnmpTarget,
     if sysinfo.sys_name:
         claims.append(store.IdentityClaim("sysname", sysinfo.sys_name, "inferred"))
 
-    # Lowest non-loopback MAC is a stable hardware anchor.
-    macs = sorted(
+    # EVERY burned-in MAC becomes a claim, not just one. If a NIC is
+    # removed or an address changes, the remaining claims still resolve
+    # the device. Software-generated MACs (docker0, br-*, veth*) are
+    # excluded — they regenerate and would poison identity.
+    macs = sorted({
         i.mac_address for i in ifaces.values()
-        if i.mac_address and i.if_type != "loopback")
-    if macs:
-        claims.append(store.IdentityClaim("base_mac", macs[0], "inferred"))
+        if mib.is_hardware_mac(i.mac_address) and i.if_type != "loopback"})
+    for mac in macs:
+        claims.append(store.IdentityClaim("base_mac", mac, "inferred"))
 
     # A replayed walk has no meaningful management address.
     if not recorded:
