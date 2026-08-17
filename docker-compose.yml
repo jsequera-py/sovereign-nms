@@ -16,5 +16,19 @@ services:
       timeout: 5s
       retries: 10
 
+  # Simulated fleet. Each sim/data/<name>.snmprec is reachable using
+  # <name> as the SNMP community string.
+  snmpsim:
+    image: tandrup/snmpsim:latest
+    container_name: nms-snmpsim
+    command: >
+      --data-dir=/usr/local/snmpsim/data
+      --agent-udpv4-endpoint=0.0.0.0:161
+    ports:
+      - "127.0.0.1:1161:161/udp"
+    volumes:
+      - ./sim/data:/usr/local/snmpsim/data:ro
+    restart: unless-stopped
+
 volumes:
   pgdata:

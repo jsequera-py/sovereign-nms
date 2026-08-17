@@ -1,0 +1,147 @@
+# ============================================================
+# GROUND TRUTH.
+#
+# This file is both the input to the fleet generator AND the answer key
+# the scorer grades against. If you edit it to make discovery look
+# better, you have deleted the only honest measurement in the project.
+#
+# Deliberate difficulty is built in. A fleet where every link has clean
+# bidirectional LLDP proves nothing — real networks are not like that.
+# ============================================================
+
+profiles:
+  fortigate:
+    sys_descr: "FortiGate-60F v7.4.4,build2662,240514 (GA)"
+    sys_object_id: ".1.3.6.1.4.1.12356.101.1.660"
+    vendor: fortinet
+    port_prefix: "port"
+    port_count: 8
+    speed_mbps: 1000
+    lldp: true
+
+  nexus:
+    sys_descr: "Cisco NX-OS(tm) n9000, Software (nxos.9.3.10.bin)"
+    sys_object_id: ".1.3.6.1.4.1.9.12.3.1.3.1084"
+    vendor: cisco
+    port_prefix: "Ethernet1/"
+    port_count: 12
+    speed_mbps: 10000
+    lldp: true
+
+  catalyst:
+    sys_descr: "Cisco IOS Software, C2960X Software, Version 15.2(7)E3"
+    sys_object_id: ".1.3.6.1.4.1.9.1.1745"
+    vendor: cisco
+    port_prefix: "GigabitEthernet0/"
+    port_count: 24
+    speed_mbps: 1000
+    lldp: true
+
+  # LLDP disabled in firmware. Discoverable as a device, but it will
+  # never announce a neighbour and never be announced by name.
+  netgear_noLldp:
+    sys_descr: "GS724Tv4 ProSAFE 24-Port Gigabit Smart Switch"
+    sys_object_id: ".1.3.6.1.4.1.4526.100.1.1"
+    vendor: netgear
+    port_prefix: "g"
+    port_count: 24
+    speed_mbps: 1000
+    lldp: false
+
+  esxi:
+    sys_descr: "VMware ESXi 8.0.2 build-23305546"
+    sys_object_id: ".1.3.6.1.4.1.6876.4.1"
+    vendor: vmware
+    port_prefix: "vmnic"
+    port_count: 4
+    speed_mbps: 10000
+    lldp: true
+
+  linux:
+    sys_descr: "Linux srv 6.8.0-45-generic x86_64"
+    sys_object_id: ".1.3.6.1.4.1.8072.3.2.10"
+    vendor: linux
+    port_prefix: "eth"
+    port_count: 2
+    speed_mbps: 1000
+    lldp: false
+
+devices:
+  - {name: fw-edge-01,   profile: fortigate,      mgmt: 10.10.0.1,  role: firewall,     site: hq}
+  - {name: core-sw-01,   profile: nexus,          mgmt: 10.10.0.11, role: core,         site: hq}
+  - {name: core-sw-02,   profile: nexus,          mgmt: 10.10.0.12, role: core,         site: hq}
+  - {name: dist-sw-01,   profile: catalyst,       mgmt: 10.10.0.21, role: distribution, site: hq}
+  - {name: dist-sw-02,   profile: catalyst,       mgmt: 10.10.0.22, role: distribution, site: hq}
+  - {name: acc-sw-01,    profile: catalyst,       mgmt: 10.10.0.31, role: access,       site: hq}
+  - {name: acc-sw-02,    profile: catalyst,       mgmt: 10.10.0.32, role: access,       site: hq}
+  - {name: acc-sw-03,    profile: netgear_noLldp, mgmt: 10.10.0.33, role: access,       site: hq}
+  - {name: esxi-01,      profile: esxi,           mgmt: 10.10.0.41, role: host,         site: hq}
+  - {name: esxi-02,      profile: esxi,           mgmt: 10.10.0.42, role: host,         site: hq}
+  - {name: srv-mon-01,   profile: linux,          mgmt: 10.10.0.51, role: host,         site: hq}
+
+  # Branch site. Same numbering habits as HQ in places — this is what
+  # makes naive IP-based identity collide across tenants.
+  - {name: br-fw-01,     profile: fortigate,      mgmt: 10.20.0.1,  role: firewall,     site: branch}
+  - {name: br-sw-01,     profile: catalyst,       mgmt: 10.20.0.11, role: access,       site: branch}
+
+# ------------------------------------------------------------
+# LINKS
+#
+# lldp: both  -> both ends advertise (easy, most links)
+#       one   -> only side A advertises (asymmetric config, common)
+#       none  -> neither advertises (must be inferred or missed)
+#
+# hidden_switch: an unmanaged switch sits in the path. Both ends are
+#   real and adjacent at L2, but nothing between them is manageable.
+#   This is the case that breaks naive discovery.
+# ------------------------------------------------------------
+links:
+  # Core uplinks — clean LLDP
+  - {a: fw-edge-01, a_port: 1,  b: core-sw-01, b_port: 1,  lldp: both}
+  - {a: fw-edge-01, a_port: 2,  b: core-sw-02, b_port: 1,  lldp: both}
+  - {a: core-sw-01, a_port: 2,  b: core-sw-02, b_port: 2,  lldp: both}
+
+  # Distribution
+  - {a: core-sw-01, a_port: 3,  b: dist-sw-01, b_port: 1,  lldp: both}
+  - {a: core-sw-02, a_port: 3,  b: dist-sw-02, b_port: 1,  lldp: both}
+  - {a: core-sw-01, a_port: 4,  b: dist-sw-02, b_port: 2,  lldp: both}
+
+  # Asymmetric: dist-sw-02 has LLDP transmit disabled on this port
+  - {a: core-sw-02, a_port: 4,  b: dist-sw-01, b_port: 2,  lldp: one}
+
+  # Access
+  - {a: dist-sw-01, a_port: 3,  b: acc-sw-01,  b_port: 1,  lldp: both}
+  - {a: dist-sw-02, a_port: 3,  b: acc-sw-02,  b_port: 1,  lldp: both}
+
+  # acc-sw-03 is the Netgear with no LLDP support at all
+  - {a: dist-sw-01, a_port: 4,  b: acc-sw-03,  b_port: 1,  lldp: none}
+
+  # Hypervisors: ESXi announces LLDP, but only on the active vmnic
+  - {a: dist-sw-01, a_port: 5,  b: esxi-01,    b_port: 1,  lldp: both}
+  - {a: dist-sw-02, a_port: 5,  b: esxi-01,    b_port: 2,  lldp: none}
+  - {a: dist-sw-01, a_port: 6,  b: esxi-02,    b_port: 1,  lldp: both}
+  - {a: dist-sw-02, a_port: 6,  b: esxi-02,    b_port: 2,  lldp: none}
+
+  # Linux host — no LLDP daemon installed. Very common.
+  - {a: acc-sw-01,  a_port: 2,  b: srv-mon-01, b_port: 1,  lldp: none}
+
+  # Unmanaged switch in the path. acc-sw-02 and acc-sw-03 are adjacent
+  # through hardware you cannot poll.
+  - {a: acc-sw-02,  a_port: 2,  b: acc-sw-03,  b_port: 2,  lldp: none, hidden_switch: true}
+
+  # Branch
+  - {a: br-fw-01,   a_port: 1,  b: br-sw-01,   b_port: 1,  lldp: both}
+
+# ------------------------------------------------------------
+# Expected discovery difficulty, stated up front so the scorer has
+# something to compare against and you cannot move the goalposts later.
+#
+#   17 links total
+#   11 with bidirectional LLDP   -> should be found trivially
+#    1 with one-sided LLDP       -> should be found, lower confidence
+#    5 with no LLDP at all       -> require MAC/ARP inference or are missed
+#
+# A first implementation that finds 12/17 is honest progress.
+# Anything reporting 17/17 on the first run means the generator and the
+# parser agree with each other, not that discovery works.
+# ------------------------------------------------------------
