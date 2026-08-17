@@ -2,3 +2,5 @@
 sim/data/*.snmprec
 __pycache__/
 .venv/
+inventory.generated.yaml
+inventory.generated.yaml

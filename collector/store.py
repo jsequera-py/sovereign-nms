@@ -20,9 +20,18 @@ from psycopg.rows import dict_row
 log = logging.getLogger(__name__)
 
 # Ordered strongest first. A stable hardware identifier outranks a
-# mutable one; mgmt_ip is last because it is the most volatile thing
-# about a device and the most likely to be reused elsewhere.
+# mutable one.
 IDENTITY_PRECEDENCE = ("serial", "chassis_id", "base_mac", "sysname", "mgmt_ip")
+
+# Only these may ESTABLISH that two observations are the same device.
+#
+# mgmt_ip is deliberately excluded. It is recorded (useful for search,
+# for reachability, as corroboration) but it can never resolve identity
+# on its own: addresses are reassigned, reused across sites, and shared
+# by every device behind one NAT or simulator. Letting a weak identifier
+# resolve means two unrelated devices silently become one — and the
+# merge is invisible because it produces no error, just wrong data.
+RESOLVING_TYPES = frozenset({"serial", "chassis_id", "base_mac", "sysname"})
 
 
 @dataclass(frozen=True)
@@ -48,16 +57,25 @@ def resolve_device(conn, tenant_id: str, claims: list[IdentityClaim],
     ambiguous device stops collecting the other 200.
     """
     claims = [c for c in claims if c.id_value]
-    if not claims:
-        raise ValueError(f"{display_name}: no identity claims; refusing to create device")
+    if not any(c.id_type in RESOLVING_TYPES for c in claims):
+        # Refuse rather than create an unidentifiable device. A device
+        # with only a mgmt_ip cannot be tracked across a renumbering and
+        # will silently absorb the next device at that address.
+        raise ValueError(
+            f"{display_name}: no resolving identity claim "
+            f"(have: {[c.id_type for c in claims] or 'none'})")
 
     order = {t: i for i, t in enumerate(IDENTITY_PRECEDENCE)}
     claims.sort(key=lambda c: order.get(c.id_type, 99))
 
     with conn.cursor() as cur:
-        # Which existing devices do these claims point at?
+        # Which existing devices do these claims point at? Only resolving
+        # identifiers are consulted — a shared mgmt_ip must not merge two
+        # devices that have nothing else in common.
         matched: dict[str, IdentityClaim] = {}
         for c in claims:
+            if c.id_type not in RESOLVING_TYPES:
+                continue
             cur.execute(
                 """SELECT device_id FROM device_identity
                    WHERE tenant_id = %s AND id_type = %s AND id_value = %s
@@ -105,6 +123,22 @@ def resolve_device(conn, tenant_id: str, claims: list[IdentityClaim],
         # Attach every claim, including ones that missed. Next poll they
         # become hits — that is how the graph self-corrects.
         for c in claims:
+            cur.execute(
+                """SELECT device_id FROM device_identity
+                    WHERE tenant_id = %s AND id_type = %s
+                      AND id_value = %s AND source = %s::source_kind""",
+                (tenant_id, c.id_type, c.id_value, c.source))
+            prior = cur.fetchone()
+            if prior and prior["device_id"] and str(prior["device_id"]) != device_id:
+                # The same identifier now describes a different device.
+                # Expected for mgmt_ip (DHCP, NAT, reuse). Alarming for a
+                # burned-in MAC — that means a NIC moved or the value is
+                # not as unique as assumed.
+                level = log.info if c.id_type == "mgmt_ip" else log.warning
+                level("%s: %s=%s reassigned from device %s to %s",
+                      display_name, c.id_type, c.id_value,
+                      str(prior["device_id"])[:8], device_id[:8])
+
             cur.execute(
                 """INSERT INTO device_identity
                        (tenant_id, device_id, id_type, id_value, source, confidence)
