@@ -1,0 +1,29 @@
+# Device inventory. Credentials are PER DEVICE, not global — SNMPv3
+# devices (FortiGate) and v2c devices coexist here.
+#
+# Set `recorded:` to replay a saved walk instead of polling live.
+
+devices:
+  - name: optiplex
+    host: 127.0.0.1
+    version: "2c"
+    community: public
+    timeout_s: 3
+    retries: 1
+
+  # Replay of the walk recorded from this same host. Proves the parser
+  # produces identical results from a file and from the wire.
+  - name: optiplex-replay
+    host: 127.0.0.1
+    recorded: sim/walks/optiplex_real.snmpwalk
+
+  # SNMPv3 template — fill in when FortiGate access lands.
+  # - name: fortigate-01
+  #   host: 192.168.4.254
+  #   version: "3"
+  #   sec_name: nms_ro
+  #   sec_level: authPriv
+  #   auth_proto: SHA
+  #   auth_pass: CHANGEME
+  #   priv_proto: AES
+  #   priv_pass: CHANGEME
