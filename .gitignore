@@ -1,0 +1,4 @@
+.env
+sim/data/*.snmprec
+__pycache__/
+.venv/
