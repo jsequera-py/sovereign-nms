@@ -16,7 +16,7 @@ from pathlib import Path
 
 import yaml
 
-from . import lldp, mib, store, topology
+from . import fdb, lldp, mib, store, topology
 from .snmp import SnmpEmpty, SnmpError, SnmpTarget, walk
 
 log = logging.getLogger("collector")
@@ -98,6 +98,9 @@ def lldp_claims(view) -> list[store.IdentityClaim]:
     return claims
 
 
+POLLED: dict[str, str] = {}     # target name -> device_id
+
+
 def poll_one(conn, tenant_id: str, target: SnmpTarget,
              recorded: str | None, dry_run: bool) -> bool:
     try:
@@ -143,6 +146,7 @@ def poll_one(conn, tenant_id: str, target: SnmpTarget,
         vendor=vendor,
         os_version=sysinfo.sys_descr)
 
+    POLLED[target.name] = device_id
     seen, retired = store.upsert_interfaces(conn, tenant_id, device_id, ifaces)
     if_ids = store.interface_ids(conn, device_id)
     n_metrics = store.write_metrics(conn, tenant_id, device_id, ifaces, if_ids)
@@ -180,6 +184,37 @@ def poll_one(conn, tenant_id: str, target: SnmpTarget,
                  counts["device"], counts["placeholders"],
                  counts["unidentifiable"])
     return True
+
+
+def poll_fdb(conn, tenant_id: str, target: SnmpTarget,
+             recorded: str | None, device_id: str) -> None:
+    """
+    Second pass. Runs only after every device has been polled, because
+    a MAC can only be attributed to a device that already exists in the
+    database — inference over a half-populated inventory would resolve
+    almost nothing and look like a broken parser.
+    """
+    try:
+        binds = walk(target, fdb.BRIDGE_ROOT, recorded)
+    except (SnmpEmpty, SnmpError):
+        return
+
+    view = fdb.parse(binds)
+    if not view.entries:
+        return
+
+    owners = topology.mac_ownership(conn, tenant_id)
+    candidates = fdb.find_leaf_ports(view, device_id, owners)
+    if not candidates:
+        log.debug("%s: fdb %d entries, no unambiguous leaf ports",
+                  target.name, len(view.entries))
+        return
+
+    counts = topology.build_links_from_fdb(conn, tenant_id, device_id, candidates)
+    conn.commit()
+    log.info("%s: fdb inferred links=%d (interface=%d device=%d) from %d entries",
+             target.name, counts["links"], counts["interface"],
+             counts["device"], len(view.entries))
 
 
 def main() -> int:
@@ -223,6 +258,19 @@ def main() -> int:
         except Exception:
             log.exception("%s: unhandled error", target.name)
             if conn:
+                conn.rollback()
+
+    if conn and not args.dry_run:
+        # Second pass: FDB inference needs the complete device and
+        # interface inventory to resolve MACs against.
+        for target, recorded in targets:
+            device_id = POLLED.get(target.name)
+            if not device_id:
+                continue
+            try:
+                poll_fdb(conn, tenant_id, target, recorded, device_id)
+            except Exception:
+                log.exception("%s: fdb pass failed", target.name)
                 conn.rollback()
 
     if conn:

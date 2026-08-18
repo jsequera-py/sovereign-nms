@@ -1,3 +1,6 @@
+
+
+
 #!/usr/bin/env python3
 """
 Generate an snmpsim fleet from sim/topology.yaml.
@@ -66,6 +69,11 @@ LLDP_REM_SYSDESC = "1.0.8802.1.1.2.1.4.1.1.10"
 # BRIDGE-MIB forwarding database
 DOT1D_FDB_ADDR = "1.3.6.1.2.1.17.4.3.1.1"
 DOT1D_FDB_PORT = "1.3.6.1.2.1.17.4.3.1.2"
+DOT1D_FDB_STATUS = "1.3.6.1.2.1.17.4.3.1.3"
+# dot1dBasePort -> ifIndex. Deliberately NOT an identity mapping here:
+# on real switches bridge port numbers and ifIndex differ, and code
+# that conflates them attributes MACs to the wrong interface.
+DOT1D_BASE_PORT_IFINDEX = "1.3.6.1.2.1.17.1.4.1.2"
 
 # snmprec type tags
 T_OCTET = "4"
@@ -130,6 +138,53 @@ class Device:
 
     def if_index(self, port: int) -> int:
         return self.ports[port]
+
+
+FORWARDING_ROLES = {"core", "distribution", "access", "firewall"}
+
+
+def learned_via(start: str, links: list[dict], devices: dict) -> dict[str, str]:
+    """
+    For each other device, which FIRST HOP neighbour does `start` reach
+    it through? Returns {device_name: first_hop_neighbour_name}.
+
+    Shortest-path assignment, because a switch learns each MAC on
+    exactly ONE port — the one frames actually arrive on. Where the
+    topology has a loop, spanning tree picks a single active path, and
+    the shortest path is a fair stand-in. Assigning a MAC to every port
+    that could theoretically reach it would make every port look like a
+    transit port and destroy the leaf/transit distinction inference
+    depends on.
+
+    Traversal does not pass THROUGH non-forwarding devices (hosts,
+    hypervisors): they terminate frames rather than relaying them.
+    """
+    adj: dict[str, list[str]] = {}
+    for ln in links:
+        adj.setdefault(ln["a"], []).append(ln["b"])
+        adj.setdefault(ln["b"], []).append(ln["a"])
+
+    first_hop: dict[str, str] = {}
+    seen = {start}
+    frontier = []
+    for nbr in adj.get(start, []):
+        if nbr in seen:
+            continue
+        seen.add(nbr)
+        first_hop[nbr] = nbr
+        if devices[nbr].role in FORWARDING_ROLES:
+            frontier.append(nbr)
+
+    while frontier:
+        node = frontier.pop(0)          # FIFO = breadth first = shortest
+        for nxt in adj.get(node, []):
+            if nxt in seen:
+                continue
+            seen.add(nxt)
+            first_hop[nxt] = first_hop[node]
+            if devices[nxt].role in FORWARDING_ROLES:
+                frontier.append(nxt)
+    return first_hop
 
 
 def build(topology: dict) -> tuple[dict[str, Device], list[dict]]:
@@ -252,25 +307,59 @@ def render(dev: Device, links: list[dict], devices: dict[str, Device]) -> str:
             add(f"{LLDP_REM_SYSNAME}.{key}", T_OCTET, peer.name)
             add(f"{LLDP_REM_SYSDESC}.{key}", T_OCTET, peer.profile["sys_descr"])
 
-    # --- Bridge FDB ----------------------------------------------------
-    # Every neighbour's port MAC is learned on the connecting port,
-    # regardless of LLDP. This is the evidence trail that makes the
-    # LLDP-less links inferable rather than invisible.
-    fdb: list[tuple[str, int]] = []
-    for ln in links:
-        if ln["a"] == dev.name:
-            peer, local_port, peer_port = devices[ln["b"]], int(ln["a_port"]), int(ln["b_port"])
-        elif ln["b"] == dev.name:
-            peer, local_port, peer_port = devices[ln["a"]], int(ln["b_port"]), int(ln["a_port"])
-        else:
-            continue
-        fdb.append((peer.port_mac(peer_port), dev.if_index(local_port)))
-        fdb.append((peer.chassis_mac, dev.if_index(local_port)))
+    # --- Bridge port -> ifIndex map -------------------------------------
+    if dev.role in FORWARDING_ROLES:
+        for port in range(1, dev.port_count + 1):
+            add(f"{DOT1D_BASE_PORT_IFINDEX}.{port}", T_INT, dev.if_index(port))
 
-    for mac, port_idx in fdb:
-        suffix = mac_oid_suffix(mac)
-        add(f"{DOT1D_FDB_ADDR}.{suffix}", T_HEX, mac_hex(mac))
-        add(f"{DOT1D_FDB_PORT}.{suffix}", T_INT, port_idx)
+    # --- Bridge FDB -----------------------------------------------------
+    # A port learns every MAC reachable THROUGH it, not just the direct
+    # neighbour's. Uplink ports therefore carry many devices and leaf
+    # ports carry one — which is what makes strict inference possible
+    # on leaves and impossible on transit links.
+    if dev.role in FORWARDING_ROLES:
+        # Which local port faces each first-hop neighbour?
+        port_for_peer: dict[str, int] = {}
+        for ln in links:
+            if ln["a"] == dev.name:
+                port_for_peer[ln["b"]] = int(ln["a_port"])
+            elif ln["b"] == dev.name:
+                port_for_peer[ln["a"]] = int(ln["b_port"])
+
+        # Which of the DIRECT neighbour's ports faces us? Only that
+        # port's MAC is ever learned from it — frames leave a switch on
+        # the port that carries them, so the far end's other interface
+        # MACs never appear here. Emitting all of them would make the
+        # far endpoint ambiguous and force inference to guess a port.
+        peer_port_facing_us: dict[str, int] = {}
+        for ln in links:
+            if ln["a"] == dev.name:
+                peer_port_facing_us[ln["b"]] = int(ln["b_port"])
+            elif ln["b"] == dev.name:
+                peer_port_facing_us[ln["a"]] = int(ln["a_port"])
+
+        fdb: dict[str, int] = {}
+        for reached, hop in learned_via(dev.name, links, devices).items():
+            bridge_port = port_for_peer.get(hop)
+            if bridge_port is None:
+                continue
+            rd = devices[reached]
+            fdb[rd.chassis_mac] = bridge_port
+            if reached == hop:
+                # direct neighbour: only the port pointed at us
+                far = peer_port_facing_us.get(reached)
+                if far:
+                    fdb[rd.port_mac(far)] = bridge_port
+            else:
+                # beyond the first hop: any of its ports may source frames
+                for rp in range(1, rd.port_count + 1):
+                    fdb[rd.port_mac(rp)] = bridge_port
+
+        for mac, bridge_port in sorted(fdb.items()):
+            suffix = mac_oid_suffix(mac)
+            add(f"{DOT1D_FDB_ADDR}.{suffix}", T_HEX, mac_hex(mac))
+            add(f"{DOT1D_FDB_PORT}.{suffix}", T_INT, bridge_port)
+            add(f"{DOT1D_FDB_STATUS}.{suffix}", T_INT, 3)   # 3 = learned
 
     # snmpsim requires OIDs in lexicographic-numeric order
     def sort_key(row):

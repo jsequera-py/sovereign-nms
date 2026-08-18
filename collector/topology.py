@@ -335,3 +335,83 @@ def build_links(conn, tenant_id: str, reporter_device_id: str,
         counts[fidelity] += 1
 
     return counts
+
+
+def mac_ownership(conn, tenant_id: str) -> dict[str, tuple[str, str | None]]:
+    """
+    MAC -> (device_id, interface_id | None) for every MAC we know.
+
+    Interface MACs win over chassis/identity MACs: knowing which port
+    a MAC belongs to is what makes an inferred link interface-level
+    instead of device-level.
+    """
+    owners: dict[str, tuple[str, str | None]] = {}
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT id_value, device_id FROM device_identity
+                WHERE tenant_id = %s AND id_type IN ('base_mac','chassis_id')
+                  AND device_id IS NOT NULL""",
+            (tenant_id,))
+        for r in cur.fetchall():
+            owners[r["id_value"].lower()] = (str(r["device_id"]), None)
+
+        cur.execute(
+            """SELECT i.mac_address::text AS mac, i.device_id, i.interface_id
+                 FROM interface i
+                WHERE i.tenant_id = %s AND i.mac_address IS NOT NULL""",
+            (tenant_id,))
+        for r in cur.fetchall():
+            owners[r["mac"].lower()] = (str(r["device_id"]), str(r["interface_id"]))
+    return owners
+
+
+def interface_by_ifindex(conn, device_id: str, ifindex: int | None) -> str | None:
+    if ifindex is None:
+        return None
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT interface_id FROM interface
+                WHERE device_id = %s AND if_index = %s AND state = 'active'""",
+            (device_id, ifindex))
+        row = cur.fetchone()
+        return str(row["interface_id"]) if row else None
+
+
+def build_links_from_fdb(conn, tenant_id: str, reporter_device_id: str,
+                         candidates) -> dict[str, int]:
+    """
+    Record inferred adjacencies from strict leaf-port candidates.
+
+    source='mac_table' rather than 'lldp' on purpose: it carries a lower
+    base confidence, because this is an inference and LLDP is an
+    assertion. If an inferred link later gets LLDP confirmation, the
+    agreement bonus raises it — which is the evidence model behaving
+    exactly as intended.
+    """
+    counts = {"links": 0, "interface": 0, "device": 0}
+
+    for cand in candidates:
+        if cand.peer_device_id == reporter_device_id:
+            continue
+        local_if = interface_by_ifindex(conn, reporter_device_id, cand.local_ifindex)
+
+        obs = NeighborObservation(
+            reporter_device_id=reporter_device_id,
+            reporter_interface_id=local_if,
+            reporter_if_name=None,
+            peer_chassis_mac=None,
+            peer_sysname=None,
+            peer_if_name=None,
+            peer_sys_desc=None,
+            source="mac_table",
+        )
+
+        link_id, fidelity = upsert_link(
+            conn, tenant_id, reporter_device_id, cand.peer_device_id,
+            local_if, cand.peer_interface_id)
+        record_evidence(conn, link_id, obs)
+
+        counts["links"] += 1
+        counts[fidelity] += 1
+
+    return counts
