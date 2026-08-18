@@ -16,7 +16,7 @@ from pathlib import Path
 
 import yaml
 
-from . import mib, store
+from . import lldp, mib, store, topology
 from .snmp import SnmpEmpty, SnmpError, SnmpTarget, walk
 
 log = logging.getLogger("collector")
@@ -82,6 +82,22 @@ def claims_for(sysinfo: mib.SystemInfo, ifaces, target: SnmpTarget,
     return claims
 
 
+def lldp_claims(view) -> list[store.IdentityClaim]:
+    """
+    Identity a device asserts about itself over LLDP.
+
+    chassis_id is its own id_type rather than being folded into
+    base_mac: the chassis identifier is not required to equal any
+    interface MAC, and on some firmware it is absent entirely.
+    Conflating them would make neighbour resolution depend on a vendor
+    convention rather than on what the device actually said.
+    """
+    claims = []
+    if view.local_chassis_mac:
+        claims.append(store.IdentityClaim("chassis_id", view.local_chassis_mac, "lldp"))
+    return claims
+
+
 def poll_one(conn, tenant_id: str, target: SnmpTarget,
              recorded: str | None, dry_run: bool) -> bool:
     try:
@@ -135,6 +151,34 @@ def poll_one(conn, tenant_id: str, target: SnmpTarget,
     log.info("%s: device=%s (%s) interfaces=%d stale=%d metrics=%d",
              target.name, device_id[:8], "new" if created else "existing",
              seen, retired, n_metrics)
+
+    # --- LLDP ---------------------------------------------------------
+    # Deliberately after the commit above. Interface rows must exist
+    # before links can reference them, and a device with no LLDP is a
+    # normal device, not a failed poll.
+    try:
+        lldp_binds = walk(target, lldp.LLDP_ROOT, recorded)
+    except SnmpEmpty:
+        log.debug("%s: no LLDP data", target.name)
+        return True
+    except SnmpError as exc:
+        log.debug("%s: LLDP walk failed: %s", target.name, exc)
+        return True
+
+    view = lldp.parse(lldp_binds)
+    extra = lldp_claims(view)
+    if extra:
+        store.resolve_device(conn, tenant_id, claims + extra,
+                             display_name=display, mgmt_ip=None)
+
+    counts = topology.build_links(conn, tenant_id, device_id, view)
+    conn.commit()
+    if counts["links"] or counts["unidentifiable"]:
+        log.info("%s: lldp links=%d (interface=%d device=%d) "
+                 "placeholders=%d unidentifiable=%d",
+                 target.name, counts["links"], counts["interface"],
+                 counts["device"], counts["placeholders"],
+                 counts["unidentifiable"])
     return True
 
 
@@ -182,6 +226,11 @@ def main() -> int:
                 conn.rollback()
 
     if conn:
+        # Confidence is a function of evidence, so it can only be
+        # computed once every device has reported.
+        roll = topology.rollup_confidence(conn, tenant_id)
+        log.info("confidence rollup: scored=%d stale=%d",
+                 roll["scored"], roll["stale"])
         store.finish_run(conn, run_id, ok)
         conn.commit()
         conn.close()

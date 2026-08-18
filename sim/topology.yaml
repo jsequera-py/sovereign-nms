@@ -57,6 +57,20 @@ profiles:
     speed_mbps: 10000
     lldp: true
 
+  # Advertises LLDP, but reports localPortNum=0 and no chassis id.
+  # Modelled on RouterOS 6.49 as verified on real hardware. Produces
+  # device-level links only — the case that breaks parsers assuming
+  # every LLDP implementation is complete.
+  routeros_partial:
+    sys_descr: "RouterOS CCR2004-1G-12S+2XS"
+    sys_object_id: ".1.3.6.1.4.1.14988.1"
+    vendor: mikrotik
+    port_prefix: "ether"
+    port_count: 8
+    speed_mbps: 1000
+    lldp: true
+    lldp_quality: partial
+
   linux:
     sys_descr: "Linux srv 6.8.0-45-generic x86_64"
     sys_object_id: ".1.3.6.1.4.1.8072.3.2.10"
@@ -83,6 +97,7 @@ devices:
   # makes naive IP-based identity collide across tenants.
   - {name: br-fw-01,     profile: fortigate,      mgmt: 10.20.0.1,  role: firewall,     site: branch}
   - {name: br-sw-01,     profile: catalyst,       mgmt: 10.20.0.11, role: access,       site: branch}
+  - {name: br-rtr-02,    profile: routeros_partial, mgmt: 10.20.0.12, role: distribution, site: branch}
 
 # ------------------------------------------------------------
 # LINKS
@@ -131,6 +146,10 @@ links:
 
   # Branch
   - {a: br-fw-01,   a_port: 1,  b: br-sw-01,   b_port: 1,  lldp: both}
+
+  # MikroTik: both ends advertise, but RouterOS cannot say which port,
+  # so this can only ever resolve to a device-level link.
+  - {a: br-sw-01,   a_port: 2,  b: br-rtr-02,  b_port: 1,  lldp: both}
 
 # ------------------------------------------------------------
 # Expected discovery difficulty, stated up front so the scorer has

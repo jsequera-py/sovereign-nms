@@ -224,6 +224,7 @@ def infer_vendor(sys_object_id: str | None, sys_descr: str | None) -> str | None
         ".1.3.6.1.4.1.11863": "tp-link",
         ".1.3.6.1.4.1.318": "apc",
         ".1.3.6.1.4.1.6876": "vmware",
+        ".1.3.6.1.4.1.14988": "mikrotik",
     }
     if sys_object_id:
         for prefix, name in ent.items():

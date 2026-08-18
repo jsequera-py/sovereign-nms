@@ -107,6 +107,11 @@ class Device:
         self.site = spec.get("site", "default")
         self.profile = profile
         self.lldp = bool(profile.get("lldp", False))
+        # Vendors differ in how much of LLDP-MIB they populate.
+        #   "full"    - localPortNum + chassis id (Cisco-like)
+        #   "partial" - neighbours listed, localPortNum=0, no chassis id
+        #               (MikroTik RouterOS 6.49, verified on RB951G)
+        self.lldp_quality = profile.get("lldp_quality", "full")
         self.port_count = int(profile.get("port_count", 8))
         self.prefix = profile.get("port_prefix", "eth")
         self.speed_mbps = int(profile.get("speed_mbps", 1000))
@@ -191,14 +196,21 @@ def render(dev: Device, links: list[dict], devices: dict[str, Device]) -> str:
 
     # --- LLDP local ----------------------------------------------------
     if dev.lldp:
-        add(LLDP_LOC_CHASSIS_SUBTYPE, T_INT, 4)          # 4 = macAddress
-        add(LLDP_LOC_CHASSIS_ID, T_HEX, mac_hex(dev.chassis_mac))
+        if dev.lldp_quality == "full":
+            add(LLDP_LOC_CHASSIS_SUBTYPE, T_INT, 4)      # 4 = macAddress
+            add(LLDP_LOC_CHASSIS_ID, T_HEX, mac_hex(dev.chassis_mac))
+        # partial: chassis id simply absent, as on RouterOS 6.49
         add(LLDP_LOC_SYSNAME, T_OCTET, dev.name)
         add(LLDP_LOC_SYSDESC, T_OCTET, p["sys_descr"])
         for port in range(1, dev.port_count + 1):
             idx = dev.if_index(port)
-            add(f"{LLDP_LOC_PORT_SUBTYPE}.{idx}", T_INT, 5)  # 5 = interfaceName
-            add(f"{LLDP_LOC_PORT_ID}.{idx}", T_OCTET, dev.port_name(port))
+            if dev.lldp_quality == "full":
+                add(f"{LLDP_LOC_PORT_SUBTYPE}.{idx}", T_INT, 5)   # interfaceName
+                add(f"{LLDP_LOC_PORT_ID}.{idx}", T_OCTET, dev.port_name(port))
+            else:
+                # subtype 3 = macAddress; the NAME lives only in PortDesc
+                add(f"{LLDP_LOC_PORT_SUBTYPE}.{idx}", T_INT, 3)
+                add(f"{LLDP_LOC_PORT_ID}.{idx}", T_OCTET, dev.port_mac(port).upper())
             add(f"{LLDP_LOC_PORT_DESC}.{idx}", T_OCTET, dev.port_name(port))
 
     # --- LLDP remote ---------------------------------------------------
@@ -229,7 +241,8 @@ def render(dev: Device, links: list[dict], devices: dict[str, Device]) -> str:
                 continue
 
             rem_index += 1
-            local_idx = dev.if_index(local_port)
+            # Partial implementations do not map neighbours to ports.
+            local_idx = dev.if_index(local_port) if dev.lldp_quality == "full" else 0
             key = f"0.{local_idx}.{rem_index}"   # timeMark.localPort.remIndex
             add(f"{LLDP_REM_CHASSIS_SUBTYPE}.{key}", T_INT, 4)
             add(f"{LLDP_REM_CHASSIS_ID}.{key}", T_HEX, mac_hex(peer.chassis_mac))
