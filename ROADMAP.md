@@ -106,7 +106,9 @@ Collector currently writes straight to Postgres. Serialize what
 `poll_one` already parses into a `RunPayload` and POST it. Keep a
 `--direct` mode for local debugging.
 
-*Exit:* poll via API produces byte-identical scorer output to direct mode.
+*Exit:* API and direct modes produce identical scorer output and identical
+link content — normalise the device pair before diffing, since canonical
+column order is UUID-derived and varies between rebuilds.
 
 **Done.**
 
