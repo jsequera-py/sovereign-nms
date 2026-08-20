@@ -251,8 +251,16 @@ LLDP-MIB, so the collector reads zero neighbours from the OptiPlex.
 30 seconds. An immediate walk of `1.0.8802.1.1.2.1.4` returns "No Such Object"
 and looks like a failed config. Wait, then re-check.
 
-**Neither snmpd.conf nor /etc/default/lldpd is mirrored in `deploy/`.** Only
-`nms-api.service` is. Worth fixing.
+**Now scripted: `deploy/host-setup.sh`.** Run `sudo ./deploy/host-setup.sh
+--check` to report drift while changing nothing, or without `--check` to
+apply. It is idempotent and restarts snmpd/lldpd **only if it changed a
+file**, so a run against an already-configured host is a true no-op and is
+safe while polling is live. It refuses rather than guesses when an existing
+directive conflicts with what it expects.
+
+The manual steps above are kept deliberately. The script records *what* to
+do; the paragraphs above record *why*, and the why is what makes it
+reviewable when it fails on a host that is not this one.
 
 ---
 
@@ -270,7 +278,7 @@ scripts/            migrate.sh  reset_data.sh  score_topology.py
 sim/                topology.yaml (GROUND TRUTH)  genfleet.py  data/*.snmprec
                     walks/optiplex_real.snmpwalk
 deploy/             nms-api.service  nms-collector.service
-                    nms-collector.timer
+                    nms-collector.timer  host-setup.sh
 docker-compose.yml  ROADMAP.md  HANDOFF.md  identity-design.md
                     inventory.yaml  inventory.generated.yaml
 ```
