@@ -23,12 +23,16 @@ DELETE FROM link_evidence;
 DELETE FROM link;
 DELETE FROM interface;
 DELETE FROM device_identity;
+DELETE FROM device_reachability_change;
+DELETE FROM device_reachability;
 DELETE FROM device;
 DELETE FROM discovery_run;
 COMMIT;
-SELECT 'devices'    AS table, count(*) FROM device
+SELECT 'devices'      AS table, count(*) FROM device
 UNION ALL SELECT 'interfaces', count(*) FROM interface
 UNION ALL SELECT 'identities', count(*) FROM device_identity
 UNION ALL SELECT 'metrics',    count(*) FROM metric_sample
+UNION ALL SELECT 'reachability', count(*) FROM device_reachability
+UNION ALL SELECT 'reach_changes', count(*) FROM device_reachability_change
 UNION ALL SELECT 'tenants',    count(*) FROM tenant;
 SQL
