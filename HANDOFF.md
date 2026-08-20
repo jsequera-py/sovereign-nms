@@ -279,12 +279,33 @@ sim/                topology.yaml (GROUND TRUTH)  genfleet.py  data/*.snmprec
                     walks/optiplex_real.snmpwalk
 deploy/             nms-api.service  nms-collector.service
                     nms-collector.timer  host-setup.sh
+                    install-units.sh
 docker-compose.yml  ROADMAP.md  HANDOFF.md  identity-design.md
                     inventory.yaml  inventory.generated.yaml
 ```
 
 `.gitignore` covers `.env`, `.venv/`, `__pycache__/`, `sim/data/*.snmprec`,
 `inventory.generated.yaml`.
+
+**`deploy/` is authoritative; `/etc/systemd/system` is a copy.** Editing a
+unit in the repo does not change the running system, and systemd will not
+tell you. Two scripts make that checkable rather than merely asserted:
+
+| Script | Covers | Check without changing anything |
+|---|---|---|
+| `install-units.sh` | `.service` and `.timer` files against their installed copies | `sudo ./deploy/install-units.sh --check` |
+| `host-setup.sh` | snmpd `master agentx` and `agentXPerms`, lldpd `-x` | `sudo ./deploy/host-setup.sh --check` |
+
+Both are idempotent, both copy and reload nothing when already in sync, and
+both are therefore safe to run while polling is live. Neither restarts a
+long-running service for you: `install-units.sh` prints the restart command
+and stops, because restarting `nms-api.service` mid-cycle drops a collector
+POST — and a dropped POST is indistinguishable from a dead collector in
+`minutes_since_last_run`. A monitoring system must not manufacture its own
+false alarms.
+
+Run both `--check` modes after any pull, and before concluding that a
+configuration problem is a code problem.
 
 ---
 
