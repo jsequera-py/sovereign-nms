@@ -1,0 +1,43 @@
+[Unit]
+Description=Sovereign NMS collector poll cycle
+Documentation=https://github.com/jsequera-py/sovereign-nms
+
+# Wants= is what makes After= mean anything here. A timer fires
+# its service in its own start transaction, and After= only orders
+# units inside one transaction, so on its own it would be a no-op.
+# Even with Wants=, "active" is not "listening": the first
+# post-boot cycle can still lose the race and fail. That is
+# acceptable. The next cycle is five minutes away.
+Wants=nms-api.service
+After=nms-api.service
+
+[Service]
+Type=oneshot
+User=jsequera
+WorkingDirectory=/home/jsequera/nms
+EnvironmentFile=/home/jsequera/nms/.env
+SyslogIdentifier=nms-collector
+
+# TimeoutStartSec covers the unit as a whole: both polls together,
+# not each. 240s is deliberately under the 5-minute interval. A
+# cycle that cannot finish inside its own interval is a fault to
+# surface, not one to absorb.
+TimeoutStartSec=240
+
+# ONE ExecStart, not two.
+#
+# Two ExecStart= lines in a Type=oneshot unit run sequentially and
+# systemd ABORTS the remaining ones as soon as one fails. That
+# couples two independent failure domains: inventory.generated.yaml
+# is gitignored and produced by sim/genfleet.py, so the single most
+# likely failure in this unit, that file being absent, would stop
+# the MikroTik and the OptiPlex from ever being polled. A
+# simulation artifact taking the real hardware offline.
+#
+# The wrapper runs both regardless and still exits non-zero if
+# either failed. No '-' prefix anywhere: a masked failure is how a
+# monitoring system goes blind quietly.
+ExecStart=/home/jsequera/nms/scripts/poll_cycle.sh
+
+# No [Install] section. This unit is timer-activated only and must
+# never be enabled on its own.

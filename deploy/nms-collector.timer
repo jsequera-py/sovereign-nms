@@ -1,0 +1,44 @@
+[Unit]
+Description=Sovereign NMS collector - poll every 5 minutes
+Documentation=https://github.com/jsequera-py/sovereign-nms
+
+[Timer]
+Unit=nms-collector.service
+
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+# Jitter, so 50 collectors do not stampede a single ingest API.
+RandomizedDelaySec=30s
+
+# systemd defaults AccuracySec=1min, which lets each fire land up
+# to a minute late for power-saving reasons. Combined with the
+# jitter above, the effective interval becomes 5:00-6:30 and the
+# 24h run count lands well short of the expected 576. The jitter
+# is intentional; the accuracy slop is not.
+AccuracySec=1s
+
+# Persistent=true is deliberately NOT set. systemd.timer(5): it
+# only has an effect on timers configured with OnCalendar=. On a
+# monotonic timer like this one it is inert, and a directive that
+# does nothing while a comment claims it does is worse than its
+# absence. The post-reboot case is covered by OnBootSec=2min.
+
+# WHY 5 MINUTES - this is one decision with link_evidence_fresh,
+# not two.
+#
+# link_evidence_fresh is 30 minutes. Evidence older than that stops
+# counting and links decay. At a 5-minute interval you survive
+# FIVE consecutive failed polls before topology starts decaying.
+# At 15 minutes you survive one. Raising this interval spends
+# failure tolerance. If it ever has to grow, the freshness window
+# has to grow with it.
+#
+# OnUnitActiveSec measures from ACTIVATION, not completion. systemd
+# will not start a second instance while one is still active: a fire
+# during a long run is a logged no-op, not a concurrent poll.
+# Measured 2026-08-20: a full cycle is ~6s wall clock (14 simulated
+# devices plus 3 real), so the 5-minute interval has ~48x headroom.
+
+[Install]
+WantedBy=timers.target
