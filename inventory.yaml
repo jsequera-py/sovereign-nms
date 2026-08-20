@@ -11,6 +11,13 @@ devices:
     timeout_s: 3
     retries: 1
 
+  - name: rb951g-lab
+    host: 192.168.4.182
+    version: "2c"
+    community: nmslab
+    timeout_s: 3
+    retries: 1
+
   # Replay of the walk recorded from this same host. Proves the parser
   # produces identical results from a file and from the wire.
   - name: optiplex-replay

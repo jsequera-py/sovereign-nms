@@ -37,7 +37,7 @@ RESOLVING_TYPES = frozenset({"serial", "chassis_id", "base_mac", "sysname"})
 # as an identity key merges every unconfigured unit of that model.
 GENERIC_SYSNAMES = {
     "mikrotik", "switch", "router", "ap", "accesspoint",
-    "localhost", "unknown", "default", "openwrt", "raspberrypi",
+    "localhost", "unknown", "default", "openwrt", "raspberrypi", "eero",
 }
 
 
