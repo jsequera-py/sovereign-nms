@@ -10,8 +10,12 @@ Last updated 2026-08-20. State below was verified on the machine, not assumed.
 
 ### Verified state (2026-08-20)
 
+Most recent commits at the time of writing. The docs commit that carries this
+file sits on top of them, so HEAD is one ahead of this list by design — do not
+"correct" it.
+
 ```
-6756ae1 (HEAD -> master, origin/master) deploy: collector timer (5min interval) and poll_cycle wrapper
+6756ae1 deploy: collector timer (5min interval) and poll_cycle wrapper
 3911903 docs: refresh handoff with verified state; add identity design note
 a2175bc deploy: db restart policy, systemd unit for the ingest API
 ed6f9f4 scripts: wipe device_reachability tables on reset
@@ -262,12 +266,13 @@ server/             app.py (FastAPI)  ingest.py (run processing)
 common/             wire.py (collector <-> server payload contract)
 migrations/         001..005
 scripts/            migrate.sh  reset_data.sh  score_topology.py
-                    create_collector_key.py
+                    create_collector_key.py  poll_cycle.sh
 sim/                topology.yaml (GROUND TRUTH)  genfleet.py  data/*.snmprec
                     walks/optiplex_real.snmpwalk
-deploy/             nms-api.service
-docker-compose.yml  ROADMAP.md  HANDOFF.md  inventory.yaml
-                    inventory.generated.yaml
+deploy/             nms-api.service  nms-collector.service
+                    nms-collector.timer
+docker-compose.yml  ROADMAP.md  HANDOFF.md  identity-design.md
+                    inventory.yaml  inventory.generated.yaml
 ```
 
 `.gitignore` covers `.env`, `.venv/`, `__pycache__/`, `sim/data/*.snmprec`,
@@ -293,8 +298,11 @@ docker compose up -d                      # db + snmpsim (both auto-restart)
 .venv/bin/python scripts/score_topology.py
 ```
 
-Re-poll the simulated fleet after polling only real devices, or the next
-rollup marks its evidence stale.
+The timer polls both inventories every 5 minutes, so manual polling is only
+needed after a `reset_data.sh` or while testing a change. When you do poll by
+hand, poll **both** inventories — polling only one leaves the other's evidence
+to age past the 30-minute freshness window, and the next scorer run looks like
+a regression when it is only staleness.
 
 Always use `psql ... -P pager=off` — the pager otherwise locks the terminal
 at `(END)`.
@@ -569,9 +577,13 @@ both remain open.
 8. `sim/walks/optiplex_real.snmpwalk` is stale (6 interfaces vs 7 live), so
    each poll marks the other's extra interface stale. In Phase 3 an interface
    flapping state every poll is a false-alert generator.
+   **With the timer running this fires ~288 times a day**, not once per manual
+   poll. Re-record the walk before Phase 1.3.
 9. All simulated devices share `mgmt_ip = 127.0.0.1`, so every poll logs 14
    identity-reassignment lines. Harmless — `mgmt_ip` cannot resolve identity —
    but it buries the case where a management IP genuinely moves.
+   **~4,032 such lines a day** with the timer running — journal noise at a
+   volume that will hide something real.
 10. **`discovery_run.started_at` equals `finished_at`.** Observed 2026-08-20,
     every row in the table, identical to the microsecond — one timestamp
     written into both columns at completion. The journal shows the simulated
