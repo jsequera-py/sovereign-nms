@@ -9,18 +9,26 @@ Run:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
 
-from common.wire import DeviceObs, FdbObs, InterfaceObs, NeighborObs
+from common.wire import DeviceObs, FdbObs, InterfaceObs, NeighborObs, RunPayload
 from . import fdb, lldp, mib, store
 from .snmp import SnmpEmpty, SnmpError, SnmpTarget, walk
 
 log = logging.getLogger("collector")
+
+# A hung POST must not wedge a long-lived process. Retries belong with
+# the scheduler in Phase 1.2, not here.
+REQUEST_TIMEOUT_S = 30
 
 
 def load_env(path: Path) -> dict[str, str]:
@@ -163,6 +171,62 @@ def _log_dry_run(target: SnmpTarget, obs: DeviceObs) -> None:
                  i.oper_status or "-", i.mac_address or "-")
 
 
+def _error_detail(body: bytes) -> str:
+    """FastAPI's HTTPException body is {"detail": "..."} — surface that
+    verbatim rather than the raw JSON envelope."""
+    try:
+        parsed = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return body.decode(errors="replace")
+    if isinstance(parsed, dict) and "detail" in parsed:
+        return str(parsed["detail"])
+    return body.decode(errors="replace")
+
+
+def post_run(api_url: str, token: str, devices: list[DeviceObs],
+            started_at: str, finished_at: str) -> dict | None:
+    """
+    POST one complete cycle to the ingest API. Returns the server's
+    result dict on 2xx. Returns None on failure, having already logged
+    why — a run that silently fails to land is worse than one that
+    crashes loudly.
+    """
+    payload = RunPayload(started_at=started_at, finished_at=finished_at,
+                         devices=devices)
+    body = json.dumps(payload.to_json()).encode()
+
+    req = urllib.request.Request(
+        f"{api_url.rstrip('/')}/v1/ingest/run",
+        data=body,
+        headers={"Authorization": f"Bearer {token}",
+                 "Content-Type": "application/json"},
+        method="POST")
+
+    try:
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_S) as resp:
+            status = resp.status
+            resp_body = resp.read()
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+        resp_body = exc.read()
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        log.error("cannot reach ingest API at %s: %s", api_url, exc)
+        return None
+
+    if status == 401:
+        log.error("collector credential rejected (401) by %s", api_url)
+        return None
+    if status == 400:
+        log.error("ingest API rejected the run (400): %s", _error_detail(resp_body))
+        return None
+    if not 200 <= status < 300:
+        log.error("ingest API returned %d: %s",
+                  status, _error_detail(resp_body))
+        return None
+
+    return json.loads(resp_body)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--inventory", default="inventory.yaml")
@@ -170,7 +234,9 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--direct", action="store_true",
                     help="persist locally against DB_URL, instead of "
-                         "posting to the ingest API (API mode: step 4)")
+                         "posting to the ingest API")
+    ap.add_argument("--api-url", default="http://127.0.0.1:8000",
+                    help="ingest API base URL (used unless --direct)")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
@@ -199,18 +265,9 @@ def main() -> int:
         log.info("observed %d/%d devices successfully", ok, len(targets))
         return 0 if ok else 2
 
-    if not args.direct:
-        log.error("API mode is not implemented yet (Phase 1.1 step 4) — "
-                  "pass --direct")
-        return 1
-
     env = load_env(Path(args.env))
-    dsn = os.environ.get("DB_URL") or env.get("DB_URL")
-    tenant_id = os.environ.get("TENANT_ID") or env.get("TENANT_ID")
-    if not dsn or not tenant_id:
-        log.error("DB_URL and TENANT_ID required (set in .env)")
-        return 1
 
+    started_at = datetime.now(timezone.utc).isoformat()
     devices: list[DeviceObs] = []
     for target, recorded in targets:
         # Per-device isolation: one bad device must never abort the cycle.
@@ -218,6 +275,11 @@ def main() -> int:
             devices.append(observe_one(target, recorded))
         except Exception:
             log.exception("%s: unhandled error", target.name)
+    finished_at = datetime.now(timezone.utc).isoformat()
+
+    if not devices:
+        log.error("no observations collected")
+        return 1
 
     ok = 0
     for obs in devices:
@@ -226,16 +288,33 @@ def main() -> int:
         else:
             log.warning("%s: %s (%s)", obs.poll_target, obs.error, obs.reach_status)
 
-    # Lazy: a collector shipped without server/ must still run in API
-    # mode. --direct is a local-debugging path on the central node only.
-    from server import ingest
+    if args.direct:
+        dsn = os.environ.get("DB_URL") or env.get("DB_URL")
+        tenant_id = os.environ.get("TENANT_ID") or env.get("TENANT_ID")
+        if not dsn or not tenant_id:
+            log.error("DB_URL and TENANT_ID required (set in .env)")
+            return 1
 
-    conn = store.connect(dsn)
-    result = ingest.process_run(
-        conn, tenant_id=tenant_id, site_id=None, collector_key_id=None,
-        collector_name="direct", devices=devices)
-    conn.commit()
-    conn.close()
+        # Lazy: a collector shipped without server/ must still run in
+        # API mode. --direct is a local-debugging path on the central
+        # node only.
+        from server import ingest
+
+        conn = store.connect(dsn)
+        result = ingest.process_run(
+            conn, tenant_id=tenant_id, site_id=None, collector_key_id=None,
+            collector_name="direct", devices=devices)
+        conn.commit()
+        conn.close()
+    else:
+        token = os.environ.get("INGEST_TOKEN") or env.get("INGEST_TOKEN")
+        if not token:
+            log.error("INGEST_TOKEN required (set in .env) for API mode — "
+                      "issue one with scripts/create_collector_key.py")
+            return 1
+        result = post_run(args.api_url, token, devices, started_at, finished_at)
+        if result is None:
+            return 1
 
     log.info("run=%s devices=%d unreachable=%d interfaces=%d "
              "lldp_links=%d fdb_links=%d auto_edge_pct=%s",
