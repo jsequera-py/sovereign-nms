@@ -72,6 +72,15 @@ them needs cross-device FDB correlation, which is where precision
 typically dies. 89% with zero false links is a stronger position than
 95% with one.
 
+### Real-hardware result
+
+Three real links discovered: OptiPlex → eero GTW, MikroTik → eero 2 AP,
+MikroTik → MateBook dock. All three correct, zero false links, device
+fidelity throughout — expected, since RouterOS 6.49 reports
+`lldpRemLocalPortNum = 0` for every neighbour. Both eeros advertise
+`SysName: eero`; before the generic-sysName identity fix, they would
+have merged into one device row.
+
 ### Bugs the scorer caught that produced no error
 
 1. All 13 simulated devices merged into one, via a shared `mgmt_ip`
@@ -99,6 +108,8 @@ Collector currently writes straight to Postgres. Serialize what
 
 *Exit:* poll via API produces byte-identical scorer output to direct mode.
 
+**Done.**
+
 ### 1.2 Scheduler
 Polls run when someone types a command. Needs systemd timer or an
 internal loop, with jitter so 50 collectors don't stampede.
@@ -115,6 +126,8 @@ wrap-around handling (32-bit wrap, counter reset on reboot).
 MikroTik is configured but in no inventory. Add it and the OptiPlex.
 
 *Exit:* one real link discovered between two real devices.
+
+**Done.**
 
 ---
 
@@ -215,8 +228,9 @@ same claim and must not look identical.
 Health, alerts, root cause with its audit trail.
 
 ### 5.4 Self-correction demo
-Reset → poll once → poll twice → topology corrects itself with nobody
-intervening. This already works; it needs to be recordable.
+Move a cable, poll again, watch the graph correct itself with nobody
+editing anything. Continuous rediscovery is the pitch; a first poll that
+is wrong and a second that fixes it never was.
 
 ---
 
