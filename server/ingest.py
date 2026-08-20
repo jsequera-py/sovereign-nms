@@ -111,10 +111,14 @@ def process_run(conn, tenant_id: str, site_id: str | None,
     # --- 1. devices and interfaces ------------------------------------
     for obs in devices:
         if not obs.reachable:
+            store.record_reachability(conn, tenant_id, obs.poll_target, None,
+                                      obs.reach_status, obs.error)
             unreachable += 1
             continue
         claims = _claims(obs)
         if not any(c.id_type in store.RESOLVING_TYPES for c in claims):
+            store.record_reachability(conn, tenant_id, obs.poll_target, None,
+                                      obs.reach_status, obs.error)
             log.warning("%s: no resolving identity, skipped", obs.poll_target)
             continue
 
@@ -122,6 +126,8 @@ def process_run(conn, tenant_id: str, site_id: str | None,
             conn, tenant_id, claims,
             display_name=obs.sys_name or obs.poll_target,
             mgmt_ip=obs.mgmt_ip, vendor=obs.vendor, os_version=obs.sys_descr)
+        store.record_reachability(conn, tenant_id, obs.poll_target, device_id,
+                                  obs.reach_status, obs.error)
 
         # Site comes from the collector's credential, not the payload.
         with conn.cursor() as cur:

@@ -224,6 +224,51 @@ def write_metrics(conn, tenant_id: str, device_id: str, ifaces, if_ids: dict[str
     return len(rows)
 
 
+def record_reachability(conn, tenant_id: str, poll_target: str,
+                        device_id: str | None, reach_status: str,
+                        error: str | None) -> None:
+    """
+    Persist current reachability for one polled target, and append a
+    transition row only when reach_status differs from what was last
+    stored — including the first time this target has ever been seen.
+
+    Keyed on (tenant_id, poll_target), not device_id: an unreachable
+    observation carries only the inventory name. Identity resolution
+    needs a successful poll, so a target never reached has no device
+    row, and one that has been reached is keyed on sys_name, not the
+    inventory name that got it polled.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT reach_status::text AS reach_status
+                 FROM device_reachability
+                WHERE tenant_id = %s AND poll_target = %s""",
+            (tenant_id, poll_target))
+        prior = cur.fetchone()
+        changed = prior is None or prior["reach_status"] != reach_status
+
+        cur.execute(
+            """INSERT INTO device_reachability
+                   (tenant_id, poll_target, device_id, reach_status, error,
+                    last_attempt_at, changed_at)
+               VALUES (%s, %s, %s, %s::reach_status_kind, %s, now(), now())
+               ON CONFLICT (tenant_id, poll_target) DO UPDATE SET
+                   device_id       = COALESCE(EXCLUDED.device_id, device_reachability.device_id),
+                   reach_status    = EXCLUDED.reach_status,
+                   error           = EXCLUDED.error,
+                   last_attempt_at = now(),
+                   changed_at      = CASE WHEN %s THEN now()
+                                          ELSE device_reachability.changed_at END""",
+            (tenant_id, poll_target, device_id, reach_status, error, changed))
+
+        if changed:
+            cur.execute(
+                """INSERT INTO device_reachability_change
+                       (tenant_id, poll_target, device_id, reach_status, error)
+                   VALUES (%s, %s, %s, %s::reach_status_kind, %s)""",
+                (tenant_id, poll_target, device_id, reach_status, error))
+
+
 def interface_ids(conn, device_id: str) -> dict[str, str]:
     with conn.cursor() as cur:
         cur.execute(
