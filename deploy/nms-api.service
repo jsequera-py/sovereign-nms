@@ -1,0 +1,17 @@
+[Unit]
+Description=Sovereign NMS ingest API
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jsequera
+WorkingDirectory=/home/jsequera/nms
+EnvironmentFile=/home/jsequera/nms/.env
+ExecStart=/home/jsequera/nms/.venv/bin/uvicorn server.app:app \
+            --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
