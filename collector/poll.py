@@ -12,13 +12,12 @@ import argparse
 import logging
 import os
 import sys
-from collections import namedtuple
 from pathlib import Path
 
 import yaml
 
-from common.wire import DeviceObs, InterfaceObs, NeighborObs
-from . import fdb, lldp, mib, store, topology
+from common.wire import DeviceObs, FdbObs, InterfaceObs, NeighborObs
+from . import fdb, lldp, mib, store
 from .snmp import SnmpEmpty, SnmpError, SnmpTarget, walk
 
 log = logging.getLogger("collector")
@@ -55,49 +54,6 @@ def build_targets(cfg: dict) -> list[tuple[SnmpTarget, str | None]]:
         )
         out.append((t, d.get("recorded")))
     return out
-
-
-def claims_for(sys_name: str | None, ifaces, target: SnmpTarget,
-               recorded: str | None) -> list[store.IdentityClaim]:
-    """
-    Every identifier this poll observed. Weak ones are included on
-    purpose — an identifier that misses today becomes the anchor that
-    survives a renumbering tomorrow.
-    """
-    claims: list[store.IdentityClaim] = []
-    if sys_name:
-        claims.append(store.IdentityClaim("sysname", sys_name, "inferred"))
-
-    # EVERY burned-in MAC becomes a claim, not just one. If a NIC is
-    # removed or an address changes, the remaining claims still resolve
-    # the device. Software-generated MACs (docker0, br-*, veth*) are
-    # excluded — they regenerate and would poison identity.
-    macs = sorted({
-        i.mac_address for i in ifaces.values()
-        if mib.is_hardware_mac(i.mac_address) and i.if_type != "loopback"})
-    for mac in macs:
-        claims.append(store.IdentityClaim("base_mac", mac, "inferred"))
-
-    # A replayed walk has no meaningful management address.
-    if not recorded:
-        claims.append(store.IdentityClaim("mgmt_ip", target.host, "inferred", 0.5))
-    return claims
-
-
-def lldp_claims(local_chassis_mac: str | None) -> list[store.IdentityClaim]:
-    """
-    Identity a device asserts about itself over LLDP.
-
-    chassis_id is its own id_type rather than being folded into
-    base_mac: the chassis identifier is not required to equal any
-    interface MAC, and on some firmware it is absent entirely.
-    Conflating them would make neighbour resolution depend on a vendor
-    convention rather than on what the device actually said.
-    """
-    claims = []
-    if local_chassis_mac:
-        claims.append(store.IdentityClaim("chassis_id", local_chassis_mac, "lldp"))
-    return claims
 
 
 def observe_one(target: SnmpTarget, recorded: str | None) -> DeviceObs:
@@ -165,6 +121,21 @@ def observe_one(target: SnmpTarget, recorded: str | None) -> DeviceObs:
                 peer_if_name=nbr.remote_interface_name,
                 sys_desc=nbr.sys_desc))
 
+    # --- FDB ------------------------------------------------------------
+    # Parsing only — inference needs the whole fleet's MAC ownership,
+    # which only process_run() has. See collector/fdb.py.
+    fdb_obs = None
+    try:
+        bridge_binds = walk(target, fdb.BRIDGE_ROOT, recorded)
+    except (SnmpEmpty, SnmpError):
+        bridge_binds = None
+
+    if bridge_binds:
+        fdb_view = fdb.parse(bridge_binds)
+        if fdb_view.entries:
+            fdb_obs = FdbObs(port_ifindex=fdb_view.port_ifindex,
+                             ports=fdb_view.by_port())
+
     return DeviceObs(
         poll_target=target.name,
         reachable=True,
@@ -179,146 +150,17 @@ def observe_one(target: SnmpTarget, recorded: str | None) -> DeviceObs:
         lldp_local_chassis_mac=lldp_local_chassis_mac,
         lldp_local_sysname=lldp_local_sysname,
         neighbors=neighbors,
+        fdb=fdb_obs,
     )
 
 
-# --- transitional adapters --------------------------------------------
-# poll_one() still persists through the same per-call store.* sequence
-# it always has; these translate observe_one()'s wire shapes back into
-# what that sequence expects. They go away in step 3, when --direct is
-# rewired to call process_run() directly (the same conversion server/
-# ingest.py already does for the API path).
-
-_PolledIface = namedtuple(
-    "_PolledIface",
-    "if_index if_name if_alias if_type mac_address speed_bps "
-    "admin_status oper_status counters key_name")
-
-
-def _iface_view(interfaces: list[InterfaceObs]) -> dict[int, "_PolledIface"]:
-    return {
-        i.if_index: _PolledIface(
-            if_index=i.if_index, if_name=i.if_name, if_alias=i.if_alias,
-            if_type=i.if_type, mac_address=i.mac_address,
-            speed_bps=i.speed_bps, admin_status=i.admin_status,
-            oper_status=i.oper_status, counters=i.counters or {},
-            key_name=i.if_name)
-        for i in interfaces}
-
-
-class _NbrView:
-    def __init__(self, n: NeighborObs):
-        self.local_if_name = n.local_if_name
-        self.chassis_mac = n.chassis_mac
-        self.usable_sysname = (
-            n.sys_name
-            if n.sys_name and n.sys_name.strip().lower() not in store.GENERIC_SYSNAMES
-            else None)
-        self.remote_interface_name = n.peer_if_name
-        self.sys_desc = n.sys_desc
-
-    def is_identifiable(self) -> bool:
-        return bool(self.chassis_mac or self.usable_sysname)
-
-
-class _LldpView:
-    def __init__(self, neighbors: list[NeighborObs]):
-        self.neighbors = [_NbrView(n) for n in neighbors]
-
-    def local_interface_for(self, nbr: "_NbrView") -> str | None:
-        return nbr.local_if_name
-
-
-POLLED: dict[str, str] = {}     # target name -> device_id
-
-
-def poll_one(conn, tenant_id: str, target: SnmpTarget,
-             recorded: str | None, dry_run: bool) -> bool:
-    obs = observe_one(target, recorded)
-    if not obs.reachable:
-        return False
-
-    ifaces = _iface_view(obs.interfaces)
-    display = obs.sys_name or target.name
-
+def _log_dry_run(target: SnmpTarget, obs: DeviceObs) -> None:
     log.info("%s: sysName=%s vendor=%s interfaces=%d",
-             target.name, obs.sys_name, obs.vendor, len(ifaces))
-
-    if dry_run:
-        for i in sorted(ifaces.values(), key=lambda x: x.if_index):
-            log.info("    [%s] %-20s %-10s %-8s mac=%s",
-                     i.if_index, i.key_name, i.if_type or "-",
-                     i.oper_status or "-", i.mac_address or "-")
-        return True
-
-    claims = claims_for(obs.sys_name, ifaces, target, recorded)
-    device_id, created = store.resolve_device(
-        conn, tenant_id, claims,
-        display_name=display,
-        mgmt_ip=obs.mgmt_ip,
-        vendor=obs.vendor,
-        os_version=obs.sys_descr)
-
-    POLLED[target.name] = device_id
-    seen, retired = store.upsert_interfaces(conn, tenant_id, device_id, ifaces)
-    if_ids = store.interface_ids(conn, device_id)
-    n_metrics = store.write_metrics(conn, tenant_id, device_id, ifaces, if_ids)
-    conn.commit()
-
-    log.info("%s: device=%s (%s) interfaces=%d stale=%d metrics=%d",
-             target.name, device_id[:8], "new" if created else "existing",
-             seen, retired, n_metrics)
-
-    # --- LLDP ---------------------------------------------------------
-    # Deliberately after the commit above. Interface rows must exist
-    # before links can reference them, and a device with no LLDP is a
-    # normal device, not a failed poll.
-    extra = lldp_claims(obs.lldp_local_chassis_mac)
-    if extra:
-        store.resolve_device(conn, tenant_id, claims + extra,
-                             display_name=display, mgmt_ip=None)
-
-    view = _LldpView(obs.neighbors)
-    counts = topology.build_links(conn, tenant_id, device_id, view)
-    conn.commit()
-    if counts["links"] or counts["unidentifiable"]:
-        log.info("%s: lldp links=%d (interface=%d device=%d) "
-                 "placeholders=%d unidentifiable=%d",
-                 target.name, counts["links"], counts["interface"],
-                 counts["device"], counts["placeholders"],
-                 counts["unidentifiable"])
-    return True
-
-
-def poll_fdb(conn, tenant_id: str, target: SnmpTarget,
-             recorded: str | None, device_id: str) -> None:
-    """
-    Second pass. Runs only after every device has been polled, because
-    a MAC can only be attributed to a device that already exists in the
-    database — inference over a half-populated inventory would resolve
-    almost nothing and look like a broken parser.
-    """
-    try:
-        binds = walk(target, fdb.BRIDGE_ROOT, recorded)
-    except (SnmpEmpty, SnmpError):
-        return
-
-    view = fdb.parse(binds)
-    if not view.entries:
-        return
-
-    owners = topology.mac_ownership(conn, tenant_id)
-    candidates = fdb.find_leaf_ports(view, device_id, owners)
-    if not candidates:
-        log.debug("%s: fdb %d entries, no unambiguous leaf ports",
-                  target.name, len(view.entries))
-        return
-
-    counts = topology.build_links_from_fdb(conn, tenant_id, device_id, candidates)
-    conn.commit()
-    log.info("%s: fdb inferred links=%d (interface=%d device=%d) from %d entries",
-             target.name, counts["links"], counts["interface"],
-             counts["device"], len(view.entries))
+             target.name, obs.sys_name, obs.vendor, len(obs.interfaces))
+    for i in sorted(obs.interfaces, key=lambda x: x.if_index):
+        log.info("    [%s] %-20s %-10s %-8s mac=%s",
+                 i.if_index, i.if_name, i.if_type or "-",
+                 i.oper_status or "-", i.mac_address or "-")
 
 
 def main() -> int:
@@ -326,6 +168,9 @@ def main() -> int:
     ap.add_argument("--inventory", default="inventory.yaml")
     ap.add_argument("--env", default=".env")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--direct", action="store_true",
+                    help="persist locally against DB_URL, instead of "
+                         "posting to the ingest API (API mode: step 4)")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
@@ -339,53 +184,65 @@ def main() -> int:
         log.error("no devices in %s", args.inventory)
         return 1
 
+    if args.dry_run:
+        ok = 0
+        for target, recorded in targets:
+            try:
+                obs = observe_one(target, recorded)
+            except Exception:
+                log.exception("%s: unhandled error", target.name)
+                continue
+            if not obs.reachable:
+                continue
+            _log_dry_run(target, obs)
+            ok += 1
+        log.info("observed %d/%d devices successfully", ok, len(targets))
+        return 0 if ok else 2
+
+    if not args.direct:
+        log.error("API mode is not implemented yet (Phase 1.1 step 4) — "
+                  "pass --direct")
+        return 1
+
     env = load_env(Path(args.env))
     dsn = os.environ.get("DB_URL") or env.get("DB_URL")
     tenant_id = os.environ.get("TENANT_ID") or env.get("TENANT_ID")
+    if not dsn or not tenant_id:
+        log.error("DB_URL and TENANT_ID required (set in .env)")
+        return 1
 
-    conn = None
-    run_id = None
-    if not args.dry_run:
-        if not dsn or not tenant_id:
-            log.error("DB_URL and TENANT_ID required (set in .env)")
-            return 1
-        conn = store.connect(dsn)
-        run_id = store.start_run(conn, tenant_id)
-        conn.commit()
-
-    ok = 0
+    devices: list[DeviceObs] = []
     for target, recorded in targets:
         # Per-device isolation: one bad device must never abort the cycle.
         try:
-            if poll_one(conn, tenant_id, target, recorded, args.dry_run):
-                ok += 1
+            devices.append(observe_one(target, recorded))
         except Exception:
             log.exception("%s: unhandled error", target.name)
-            if conn:
-                conn.rollback()
 
-    if conn and not args.dry_run:
-        # Second pass: FDB inference needs the complete device and
-        # interface inventory to resolve MACs against.
-        for target, recorded in targets:
-            device_id = POLLED.get(target.name)
-            if not device_id:
-                continue
-            try:
-                poll_fdb(conn, tenant_id, target, recorded, device_id)
-            except Exception:
-                log.exception("%s: fdb pass failed", target.name)
-                conn.rollback()
+    ok = 0
+    for obs in devices:
+        if obs.reachable:
+            ok += 1
+        else:
+            log.warning("%s: %s (%s)", obs.poll_target, obs.error, obs.reach_status)
 
-    if conn:
-        # Confidence is a function of evidence, so it can only be
-        # computed once every device has reported.
-        roll = topology.rollup_confidence(conn, tenant_id)
-        log.info("confidence rollup: scored=%d stale=%d",
-                 roll["scored"], roll["stale"])
-        store.finish_run(conn, run_id, ok)
-        conn.commit()
-        conn.close()
+    # Lazy: a collector shipped without server/ must still run in API
+    # mode. --direct is a local-debugging path on the central node only.
+    from server import ingest
+
+    conn = store.connect(dsn)
+    result = ingest.process_run(
+        conn, tenant_id=tenant_id, site_id=None, collector_key_id=None,
+        collector_name="direct", devices=devices)
+    conn.commit()
+    conn.close()
+
+    log.info("run=%s devices=%d unreachable=%d interfaces=%d "
+             "lldp_links=%d fdb_links=%d auto_edge_pct=%s",
+             result["run_id"], result["devices_ingested"],
+             result["devices_unreachable"], result["interfaces"],
+             result["lldp_links"], result["fdb_inferred_links"],
+             result["auto_edge_pct"])
 
     log.info("polled %d/%d devices successfully", ok, len(targets))
     return 0 if ok else 2
