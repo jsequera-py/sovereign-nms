@@ -33,6 +33,13 @@ IDENTITY_PRECEDENCE = ("serial", "chassis_id", "base_mac", "sysname", "mgmt_ip")
 # merge is invisible because it produces no error, just wrong data.
 RESOLVING_TYPES = frozenset({"serial", "chassis_id", "base_mac", "sysname"})
 
+# sysName values that identify a product line, not a device. Using one
+# as an identity key merges every unconfigured unit of that model.
+GENERIC_SYSNAMES = {
+    "mikrotik", "switch", "router", "ap", "accesspoint",
+    "localhost", "unknown", "default", "openwrt", "raspberrypi",
+}
+
 
 @dataclass(frozen=True)
 class IdentityClaim:
@@ -57,6 +64,9 @@ def resolve_device(conn, tenant_id: str, claims: list[IdentityClaim],
     ambiguous device stops collecting the other 200.
     """
     claims = [c for c in claims if c.id_value]
+    claims = [c for c in claims
+              if not (c.id_type == "sysname"
+                      and c.id_value.strip().lower() in GENERIC_SYSNAMES)]
     if not any(c.id_type in RESOLVING_TYPES for c in claims):
         # Refuse rather than create an unidentifiable device. A device
         # with only a mgmt_ip cannot be tracked across a renumbering and

@@ -82,7 +82,10 @@ class _Nbr:
     def __init__(self, n):
         self.local_if_name = n.local_if_name
         self.chassis_mac = n.chassis_mac
-        self.usable_sysname = n.sys_name
+        self.usable_sysname = (
+            n.sys_name
+            if n.sys_name and n.sys_name.strip().lower() not in store.GENERIC_SYSNAMES
+            else None)
         self.remote_interface_name = n.peer_if_name
         self.sys_desc = n.sys_desc
 

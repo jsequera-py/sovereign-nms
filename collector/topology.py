@@ -20,6 +20,8 @@ import json
 import logging
 from dataclasses import dataclass
 
+from .store import GENERIC_SYSNAMES
+
 log = logging.getLogger(__name__)
 
 # How much a single source is worth on its own. These are priors, not
@@ -40,11 +42,6 @@ SOURCE_BASE = {
 AGREEMENT_BONUS = 0.15
 # Nothing automated reaches certainty. Only a human assertion does.
 AUTO_CEILING = 0.95
-
-GENERIC_SYSNAMES = {
-    "mikrotik", "switch", "router", "ap", "accesspoint",
-    "localhost", "unknown", "default", "openwrt", "raspberrypi",
-}
 
 
 @dataclass

@@ -24,6 +24,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from .store import GENERIC_SYSNAMES
+
 # --- local ---
 LOC_CHASSIS_SUBTYPE = ".1.0.8802.1.1.2.1.3.1.0"
 LOC_CHASSIS_ID = ".1.0.8802.1.1.2.1.3.2.0"
@@ -49,13 +51,6 @@ SUBTYPE_MAC = "4"          # chassis: macAddress
 SUBTYPE_PORT_MAC = "3"     # port:    macAddress
 SUBTYPE_IFNAME = "5"       # port:    interfaceName
 SUBTYPE_LOCAL = "7"        # port:    local (vendor string)
-
-# sysName values that identify a product line, not a device. Using one
-# as an identity key merges every unconfigured unit of that model.
-GENERIC_SYSNAMES = {
-    "mikrotik", "switch", "router", "ap", "accesspoint",
-    "localhost", "unknown", "default", "openwrt", "raspberrypi",
-}
 
 _MAC_RE = re.compile(r"\b([0-9A-Fa-f]{2})(?=(?:[:\- ]?[0-9A-Fa-f]{2}){5}\b)")
 
