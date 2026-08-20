@@ -456,7 +456,14 @@ announcing an identical name.
 
 **eero sysDescr carries a serial:** `eero PoE 6 GGC21D0A30272301`. `serial`
 outranks chassis MAC in `IDENTITY_PRECEDENCE` and survives a NIC swap.
-Currently discarded — extracting it needs vendor-specific sysDescr parsing.
+Currently discarded.
+
+Confirmed 2026-08-20 that this arrives as `lldpRemSysDesc` in the OptiPlex's
+own LLDP remote table, not only in the eero's sysDescr. The eero is
+cloud-managed and not SNMP-pollable, so a sysDescr-only route would have been
+unusable — but the neighbour table gives it to us from a device we already
+poll. Cheaper than previously recorded: it needs vendor-specific parsing of a
+string we are already receiving, not access to the eero.
 
 **A correctly-configured firewall makes a device look dead.** SNMP to the
 MikroTik timed out identically to a powered-off switch. The collector records
@@ -628,6 +635,16 @@ both remain open.
     Either populate `started_at` server-side at request receipt, or drop the
     column as a false measurement. Decide in Phase 3, when collector health
     becomes monitored. Does not affect the 24h exit test, which counts rows.
+11. **lldpd advertises Docker veth interfaces as local LLDP ports.** Observed
+    2026-08-20: `lldpLocPortId` on the OptiPlex includes `veth171ed6e` and
+    `veth37eff0c` alongside `eno2` and `wlo1`. Those names regenerate on
+    container restart, so the local port table churns whenever `nms-db` or
+    `nms-snmpsim` is recreated. No neighbour is ever seen on them, so no false
+    link results today — but it is a second source of interface churn beside
+    the stale recorded walk in question 8, and Phase 3 has to tell real
+    interface state changes from bookkeeping noise. Fix is likely a lldpd
+    interface filter (`configure system interface pattern`), not collector
+    code — a device genuinely reporting a port should be believed.
 
 ---
 
