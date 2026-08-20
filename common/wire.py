@@ -63,6 +63,7 @@ class DeviceObs:
     poll_target: str
     reachable: bool = True
     error: str | None = None
+    reach_status: str = "ok"  # "ok" | "unreachable" | "filtered"
 
     sys_name: str | None = None
     sys_descr: str | None = None
@@ -115,6 +116,7 @@ def device_from_json(d: dict[str, Any]) -> DeviceObs:
         poll_target=d["poll_target"],
         reachable=d.get("reachable", True),
         error=d.get("error"),
+        reach_status=d.get("reach_status", "ok"),
         sys_name=d.get("sys_name"),
         sys_descr=d.get("sys_descr"),
         sys_object_id=d.get("sys_object_id"),
