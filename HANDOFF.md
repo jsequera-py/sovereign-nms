@@ -2,52 +2,44 @@
 
 Paste this into a new chat, along with `ROADMAP.md`, to resume.
 
-Last updated 2026-08-21. State below was verified on the machine, not assumed.
+Last updated 2026-08-20. State below was verified on the machine, not assumed.
 
 ---
 
 ## START HERE
 
-### Verified state (2026-08-21)
+### Verified state (2026-08-20)
 
 ```
-a2175bc (HEAD -> master, origin/master) deploy: db restart policy, systemd unit for the ingest API
+6756ae1 (HEAD -> master, origin/master) deploy: collector timer (5min interval) and poll_cycle wrapper
+3911903 docs: refresh handoff with verified state; add identity design note
+a2175bc deploy: db restart policy, systemd unit for the ingest API
 ed6f9f4 scripts: wipe device_reachability tables on reset
 eb56552 ingest: persist per-device reachability before the scheduler lands
-284ee86 docs: correct 1.1 exit test — link tables agree, but not byte-for-byte
-98b3794 docs: rewrite HANDOFF, mark Phase 1.1/1.4 done, retire the two-poll demo
-15b657b collector: add ingest API POST path, make it the default
 ```
 
 Working tree clean, local and origin in sync. `migrations/` holds 001–005.
-`deploy/nms-api.service` is in the repo. `nms-db` and `nms-snmpsim` up,
+`deploy/` holds `nms-api.service`, `nms-collector.service` and
+`nms-collector.timer`; the installed copies under `/etc/systemd/system` were
+verified byte-identical to the repo copies. `nms-db` and `nms-snmpsim` up,
 `nms-api` active.
 
-**Not installed:** `nms-collector.timer` — `systemctl is-enabled` returns
-`not-found`, zero timers listed.
+Host clock is NTP-synchronised (chrony, sub-millisecond offset). Host, RTC
+and Postgres all run UTC, deliberately — the database stores UTC, and
+scenario 2 puts collectors in other timezones. Read local time with
+`TZ=America/Mexico_City journalctl ...` rather than changing the host.
 
-**Database currently holds the simulated fleet only** — 14 devices, 16 active
-links, 14 reachability rows. The real devices (`optiplex`, `rb951g-lab`, and
-the three placeholders) were wiped by a `reset_data.sh` during verification and
-never re-polled. Poll `inventory.yaml` to bring them back.
+**`nms-collector.timer` is installed, enabled and running.** Unattended
+polling began **2026-08-20 20:40 UTC**. Both fleets are in the database — 14
+simulated devices and 3 real targets — and both are re-polled every 5
+minutes. See **The scheduler** below for what was built and why.
 
-### Two files exist outside the repo — commit them first
+### Next: the 24-hour exit test
 
-Both were produced in chat and never landed in git. This is the same drift
-that once cost a whole session to reconcile.
-
-1. **`HANDOFF.md`** — the copy in the repo is the older version from `98b3794`
-   ("Last updated 2026-08-20"). This file supersedes it.
-2. **`identity-design.md`** — the design note summarised below. Not in the
-   repo at all.
-
-Both are on the MateBook at `C:\ARK\`. Copy into `~/nms`, commit, push.
-
-### Then: install the collector timer
-
-Phase 1.2 step 2. Everything it depends on is done and reboot-proven. The
-ready-to-paste prompt is at the bottom of this file under **Next action in
-full**.
+Phase 1.2's roadmap exit test. Run it **after 20:40 UTC on 2026-08-21**
+(14:40 local, UTC−6), and **do not poll manually first** — polling first is
+precisely what makes the test meaningless. Full detail under **Next action
+in full** at the bottom of this file.
 
 ---
 
@@ -77,7 +69,8 @@ on-prem) only.
 |---|---|
 | 1.1 Collector ingest client | **done** |
 | 1.2 Scheduler — step 1, reachability persisted | **done** |
-| 1.2 Scheduler — step 2, the timer | **next action** |
+| 1.2 Scheduler — step 2, the timer | **done** |
+| 1.2 Scheduler — 24h exit test | **next action** |
 | 1.3 Counter deltas | not started |
 | 1.4 Real device in the pipeline | **done** |
 | 2 Dependency direction | not started — settle identity design first |
@@ -102,9 +95,9 @@ whatever is already in the database.
 
 ## Open finding: topology does not decay, and that is a problem
 
-Measured 2026-08-21. Last poll **776 minutes** earlier — 13 hours, 25× the
-30-minute `link_evidence_fresh` window. The scorer still reported
-**88.9% / 100%** with 16 links `active`.
+Measured 2026-08-20, before the scheduler existed. Last poll **776 minutes**
+earlier — 13 hours, 25× the 30-minute `link_evidence_fresh` window. The
+scorer still reported **88.9% / 100%** with 16 links `active`.
 
 Evidence ages, but nothing marks it aged until a poll runs and
 `rollup_confidence()` re-evaluates. No poll, no rollup; no rollup, links stay
@@ -487,28 +480,53 @@ cross-device FDB correlation, which risks precision.
 
 ---
 
-## After the timer
+## The scheduler — Phase 1.2, installed 2026-08-20
 
-**24h exit test** — after a full day untouched, with no manual poll first:
+`nms-collector.timer` → `nms-collector.service` → `scripts/poll_cycle.sh`.
+All three live in `deploy/` and `scripts/`; the installed copies under
+`/etc/systemd/system` were verified byte-identical to the repo copies.
 
-1. `/v1/health` → `minutes_since_last_run` under one interval,
-   `cross_site_links` still 0
-2. `scripts/score_topology.py` → still **88.9% / 100%** *without polling first*
-3. `SELECT count(*) FROM discovery_run WHERE started_at > now() - '24h'`
-   → close to 576 (two inventories × 288 cycles), shortfall explained
-4. No link in `stale` state
-5. `metric_sample` row count and on-disk size recorded, for the retention
-   decision
+**5-minute interval, ±30s jitter.** The interval is one decision with
+`link_evidence_fresh`, not two: at 5 minutes you survive five consecutive
+failed polls before evidence ages out; at 15 minutes you survive one. If the
+interval ever grows, the freshness window grows with it.
 
-Note point 2 is weaker than it looks, given the decay finding above — the
-scorer reads 88.9% whether or not anything polled. Check point 3 first.
+**One `ExecStart` calling a wrapper, not two `ExecStart` lines.** Two
+`ExecStart=` lines in a `Type=oneshot` unit abort on the first failure, which
+couples two independent failure domains. `inventory.generated.yaml` is
+gitignored, so its absence on a fresh clone or a rebuilt OptiPlex would stop
+the MikroTik and the OptiPlex from being polled at all — a simulation
+artifact taking the real hardware offline. `poll_cycle.sh` runs both
+inventories regardless and still exits non-zero if either failed. Sequential
+on purpose: `optiplex` and `optiplex-replay` resolve to the same device row,
+and concurrent identity resolution has never been tested.
 
-**Then 1.3 counter deltas**, then Phase 2 (direction) and Phase 3
-(suppression). Phase 3's exit test — **one incident instead of forty alerts,
-with root cause and audit trail** — is the sellable claim.
+**`AccuracySec=1s`.** systemd defaults to a minute of scheduling slop for
+power saving. Left at the default the effective interval becomes 5:00–6:30,
+and the 24h cycle count falls short for reasons unrelated to the collector.
 
-**Implement the identity veto rule before Phase 2.** Direction inference leans
-hard on device rows being right.
+**`Persistent=true` is deliberately absent.** `systemd.timer(5)`: it only
+affects timers configured with `OnCalendar=`. On a monotonic timer it is
+inert. `OnBootSec=2min` is what actually covers the reboot case. The
+rationale for `Persistent=` in `phase-1.2-plan.md` is wrong — do not copy it
+into a Phase 6.2 site-collector unit.
+
+**`Wants=nms-api.service` alongside `After=`.** `After=` only orders units
+within one start transaction, and a timer fires its service in its own
+transaction, so `After=` alone was a no-op. Even with `Wants=`, "active" is
+not "listening" — the first post-boot cycle can still lose the race and fail.
+That is what the 5-minute retry is for.
+
+**Measured 2026-08-20:** a full cycle is ~6.3s wall clock (14 simulated
+devices plus 3 real) against `TimeoutStartSec=240` — roughly 40× headroom.
+Overlap is not a practical risk at this fleet size. Observed spacing between
+consecutive timer-driven cycles: 5m 21s.
+
+**Deliberately not done yet:** the overlap test (make a cycle run long and
+confirm systemd refuses a concurrent start) and the wedged-run test (confirm
+`TimeoutStartSec` kills rather than queues). Steps 3 and 4 of the order of
+work in `phase-1.2-plan.md`. Neither is exercised by the 24h exit test, so
+both remain open.
 
 ---
 
@@ -554,78 +572,83 @@ hard on device rows being right.
 9. All simulated devices share `mgmt_ip = 127.0.0.1`, so every poll logs 14
    identity-reassignment lines. Harmless — `mgmt_ip` cannot resolve identity —
    but it buries the case where a management IP genuinely moves.
+10. **`discovery_run.started_at` equals `finished_at`.** Observed 2026-08-20,
+    every row in the table, identical to the microsecond — one timestamp
+    written into both columns at completion. The journal shows the simulated
+    poll spending ~5s on SNMP before the POST, so a real `started_at` would
+    sit that much earlier. Consequence: **run duration is unmeasurable from
+    the database**, so a collector slowing toward its 5-minute interval — the
+    failure you want to catch before it starts missing cycles — is visible
+    only in the journal, which the API cannot query. Note the "started but
+    never finished" signal is *deliberately* absent: `phase-1.2-plan.md`
+    relies on a failed POST writing no row at all, so
+    `minutes_since_last_run` grows. **Do not fix this by having the collector
+    write a run row locally on failure** — that destroys the liveness signal.
+    Either populate `started_at` server-side at request receipt, or drop the
+    column as a false measurement. Decide in Phase 3, when collector health
+    becomes monitored. Does not affect the 24h exit test, which counts rows.
 
 ---
 
-## Next action in full
+## Next action in full — the 24-hour exit test
 
-Paste into Claude Code on the OptiPlex, after committing the two loose files.
+Run after **20:40 UTC on 2026-08-21** (14:40 local, UTC−6). Do not poll
+manually first.
 
+```bash
+cd ~/nms
+date -u
+set -a; . ./.env; set +a          # load INGEST_TOKEN
+
+# 1. liveness
+curl -s -H "Authorization: Bearer $INGEST_TOKEN" localhost:8000/v1/health
+
+# 2. topology still current, WITHOUT polling first
+.venv/bin/python scripts/score_topology.py
+
+# 3. cycles over the last 24h
+psql "postgresql://nms:nms_dev_only@127.0.0.1:5432/nms" -P pager=off -c \
+  "SELECT count(*) FROM discovery_run WHERE started_at > now() - interval '24 hours';"
+
+# 4. no link decayed
+psql "postgresql://nms:nms_dev_only@127.0.0.1:5432/nms" -P pager=off -c \
+  "SELECT state, count(*) FROM link GROUP BY state;"
+
+# 5. retention data point — hypertable_size, NOT pg_total_relation_size,
+#    which reports near-zero because the data lives in chunks
+psql "postgresql://nms:nms_dev_only@127.0.0.1:5432/nms" -P pager=off -c \
+  "SELECT count(*) FROM metric_sample;"
+psql "postgresql://nms:nms_dev_only@127.0.0.1:5432/nms" -P pager=off -c \
+  "SELECT pg_size_pretty(hypertable_size('metric_sample'));"
+
+# 6. failed cycles
+systemctl list-timers nms-collector --no-pager
+journalctl -u nms-collector --since "24 hours ago" --no-pager | grep -c Finished
+journalctl -u nms-collector --since "24 hours ago" --no-pager | grep -i fail
 ```
-Phase 1.2 step 2 — the collector timer. The stack survives a reboot
-(verified), so it is safe to schedule polling.
 
-CREATE — keep both files in the repo under deploy/, then install into
-/etc/systemd/system.
+| # | Check | Pass condition |
+|---|---|---|
+| 1 | `minutes_since_last_run` | under 6 |
+| 1 | `cross_site_links` | still 0 |
+| 2 | scorer | 88.9% recall / 100% precision |
+| 3 | `discovery_run` count | **540–560** — not 576, see below |
+| 4 | link states | no row in `stale` |
+| 5 | `metric_sample` | record rows and size; this is the retention input |
+| 6 | journal | ~274 `Finished`, zero `fail` lines |
 
-deploy/nms-collector.service
+**On the expected count.** The plan predicted 576 (288 cycles × 2
+inventories). `RandomizedDelaySec=30s` adds ~15s on average, so the effective
+interval is ~5m 15s → ~274 cycles → **~548 rows**. That shortfall is the
+jitter working as specified, not a fault. Investigate below ~530.
 
-  Type=oneshot
-  User=jsequera
-  WorkingDirectory=/home/jsequera/nms
-  EnvironmentFile=/home/jsequera/nms/.env
-  After=nms-api.service
-  TimeoutStartSec=240
-  ExecStart=/home/jsequera/nms/.venv/bin/python -m collector.poll \
-              --inventory inventory.generated.yaml
-  ExecStart=/home/jsequera/nms/.venv/bin/python -m collector.poll \
-              --inventory inventory.yaml
+**Run check 3 before check 2.** Per the decay finding above, the scorer
+reports 88.9% whether or not anything polled, so check 2 alone does not prove
+the scheduler ran.
 
-Two ExecStart lines: the simulated fleet keeps the scorer meaningful, the real
-inventory keeps the MikroTik and OptiPlex fresh. Sequential, sim first.
+**Then 1.3 counter deltas**, then Phase 2 (direction) and Phase 3
+(suppression). Phase 3's exit test — **one incident instead of forty alerts,
+with root cause and audit trail** — is the sellable claim.
 
-Do NOT prefix either with '-'. A failed poll must fail the unit — the next
-cycle retries five minutes later, and a masked failure is how a monitoring
-system goes blind quietly.
-
-TimeoutStartSec=240 is below the 5-minute interval on purpose: a cycle that
-cannot finish inside its interval is a fault to surface, not to absorb.
-
-deploy/nms-collector.timer
-
-  OnBootSec=2min
-  OnUnitActiveSec=5min
-  RandomizedDelaySec=30s
-  Persistent=true
-  WantedBy=timers.target
-
-WHY 5 MINUTES — record this as a comment in the timer file
-
-link_evidence_fresh is 30 minutes. A 5-minute interval buys five consecutive
-failed polls before evidence ages out; 15 minutes buys one. Interval and
-freshness window are one decision, not two.
-
-ONE RISK TO NOTE IN A COMMENT
-
-inventory.generated.yaml is gitignored (produced by sim/genfleet.py). If it is
-ever missing, the first ExecStart fails every cycle forever.
-
-INSTALL AND VERIFY
-
-  sudo systemctl daemon-reload
-  sudo systemctl enable --now nms-collector.timer
-  systemctl list-timers nms-collector --no-pager
-
-Wait ~11 minutes, then confirm two cycles landed unattended:
-
-  journalctl -u nms-collector -n 40 --no-pager
-  psql "postgresql://nms:nms_dev_only@127.0.0.1:5432/nms" -P pager=off -c \
-    "SELECT started_at, finished_at, devices_seen, auto_edge_pct
-       FROM discovery_run ORDER BY started_at DESC LIMIT 6;"
-
-Expected: four discovery_run rows from two cycles (two inventories each),
-roughly 5 minutes apart, no manual polling.
-
-Do NOT run the 24-hour test yet and do not do the overlap test. Report the
-timer listing and the discovery_run rows, then stop.
-```
+**Implement the identity veto rule before Phase 2.** Direction inference
+leans hard on device rows being right.
