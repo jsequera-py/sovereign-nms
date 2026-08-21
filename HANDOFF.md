@@ -80,7 +80,7 @@ on-prem) only.
 | 2 Dependency direction | not started — settle identity design first |
 | 3 Alerting and suppression | not started — this is the sellable demo |
 | 4 Syslog and the AI layer | not started |
-| 5 Interface | not started |
+| 5 Interface | not started — IA and read contract drafted, `interface-design.md` |
 | 6 Deployable product | not started |
 
 | Metric (simulated fleet) | Value |
@@ -224,6 +224,51 @@ XGS-1008 (unmanaged — useful only as a physical "hidden switch" test).
 
 ---
 
+## Where the work happens — three surfaces, one machine
+
+The OptiPlex at `192.168.4.181` is the only place the stack runs. There are
+three ways to reach it, and knowing which surface you are on is the difference
+between doing the work and reporting that you cannot.
+
+| Surface | Reaches the OptiPlex | Use for |
+|---|---|---|
+| **Claude Code running on the OptiPlex** (terminal, cwd `~/nms`) | yes — it *is* the machine | anything: docker, psql, systemctl, snmpwalk, the scorer, git |
+| **VS Code Remote-SSH from the MateBook** | yes | hand editing, reading journals, ad-hoc shell |
+| **Cowork / claude.ai session** | **no** | research, document authoring, code authoring against a clone, producing paste-ready commands and edits |
+
+`192.168.4.181` is RFC1918. A Cowork session runs in an Anthropic cloud
+container with no route to the lab — verified, not assumed — and no amount of
+retrying changes it. The same applies to `127.0.0.1:8000`, `127.0.0.1:5432`
+and the MikroTik. A Cowork session *can* reach files on the MateBook, but only
+through the desktop bridge and only for folders explicitly connected in the
+Claude desktop app.
+
+**This is a division of labour, not a blocker.** When a Cowork session needs
+something done on the machine, the correct move is to produce an exact,
+paste-ready command block or edit set and hand it to the Claude Code session
+on the OptiPlex. When it needs to *see* a result, ask for the output to be
+pasted back. Stopping at "I cannot reach the OptiPlex" is the wrong answer and
+has been given more than once.
+
+Rules that follow:
+
+- Anything touching the live stack — docker, psql, systemctl, snmpwalk, the
+  scorer, `git push` — runs on the OptiPlex. A Cowork session never asserts a
+  result it did not see.
+- When a Cowork session describes the state of the machine, it is quoting
+  something pasted to it, and should say so. This file's opening claim —
+  *state below was verified on the machine, not assumed* — only holds while
+  that distinction is kept.
+- **Never paste `.env` contents or `INGEST_TOKEN` into a Cowork session.** It
+  cannot use them, and they persist in a transcript. A leaked token can only
+  be reissued, never recovered.
+- `C:\ARK\NMS` on the MateBook is downloaded chat artifacts — reference only,
+  never canonical. `~/nms` on the OptiPlex is the working tree, and GitHub is
+  the transport between the two. Shipping code through chat zips previously
+  cost a hash-by-hand reconciliation and one temporarily lost API.
+
+---
+
 ## Host configuration outside the repo
 
 **Git captures these only via `deploy/`. A rebuilt OptiPlex loses anything
@@ -281,6 +326,7 @@ deploy/             nms-api.service  nms-collector.service
                     nms-collector.timer  host-setup.sh
                     install-units.sh
 docker-compose.yml  ROADMAP.md  HANDOFF.md  identity-design.md
+                    interface-design.md
                     inventory.yaml  inventory.generated.yaml
 ```
 
@@ -595,6 +641,14 @@ both remain open.
 1. **Does the topology decay at all without a poll?** See the finding above.
    Probably the highest-value question here, because it changes what a UI can
    honestly display.
+   **Partially settled 2026-08-21.** `interface-design.md` §4 computes
+   freshness on the *read* path (option 2 of the three above) for display
+   purposes, and defines the render rule: a stale link keeps its last
+   confidence and loses its authority — `0.80 · unverified 13h`, never a
+   decayed number, because inventing a lower value fabricates a measurement.
+   That separates the display question from the write-side one. **Still open:
+   should `rollup_confidence()` also set `link.state` on write?** The two may
+   coexist; they must not disagree on screen.
 2. Cross-device FDB correlation for the last 2 links, accepting precision
    risk?
 3. Alert thresholds — static, or baselined per interface?
@@ -615,6 +669,9 @@ both remain open.
    flapping state every poll is a false-alert generator.
    **With the timer running this fires ~288 times a day**, not once per manual
    poll. Re-record the walk before Phase 1.3.
+   Also blocks Phase 5: interface status cannot be displayed until bookkeeping
+   churn is separable from real state change. Now a stated Phase 3.1
+   prerequisite in `ROADMAP.md`.
 9. All simulated devices share `mgmt_ip = 127.0.0.1`, so every poll logs 14
    identity-reassignment lines. Harmless — `mgmt_ip` cannot resolve identity —
    but it buries the case where a management IP genuinely moves.
@@ -635,6 +692,9 @@ both remain open.
     Either populate `started_at` server-side at request receipt, or drop the
     column as a false measurement. Decide in Phase 3, when collector health
     becomes monitored. Does not affect the 24h exit test, which counts rows.
+    Now a stated Phase 3.3 decision in `ROADMAP.md`: run duration is the only
+    signal that a collector is slowing toward its interval, and Phase 5
+    screen 6 (collector health) cannot show it otherwise.
 11. **lldpd advertises Docker veth interfaces as local LLDP ports.** Observed
     2026-08-20: `lldpLocPortId` on the OptiPlex includes `veth171ed6e` and
     `veth37eff0c` alongside `eno2` and `wlo1`. Those names regenerate on
@@ -645,6 +705,8 @@ both remain open.
     interface state changes from bookkeeping noise. Fix is likely a lldpd
     interface filter (`configure system interface pattern`), not collector
     code — a device genuinely reporting a port should be believed.
+    Second generator of the churn in question 8, with the same Phase 3.1
+    consequence.
 
 ---
 

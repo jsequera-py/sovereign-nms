@@ -160,19 +160,51 @@ ground-truth fleet.
 
 ## Phase 3 — Alerting and suppression
 
+Five requirements below were derived by writing the Phase 5 read contract
+(`interface-design.md`) before this phase rather than after. Each is cheap
+while these tables are unwritten and expensive once they hold data.
+
 ### 3.1 State change detection
 Interface up/down, device unreachable, threshold breach. Distinguish
 *unreachable* from *reachable but SNMP-filtered* — a firewall rule
 already produced a phantom outage in this lab, and reporting it as a
 device failure is the exact false alarm the pitch promises to remove.
 
+- **Alerts key on `device_id`, not `poll_target`.** `optiplex` and
+  `optiplex-replay` are two `device_reachability` rows against one device.
+  Without aggregation, one device unreachable on one management path
+  raises two alerts — the failure mode this product sells against.
+- **Bookkeeping churn must be separable from real interface state change
+  before this raises its first alert.** Two known generators: the stale
+  recorded walk (open question 8) and lldpd advertising Docker `veth*`
+  ports (open question 11). Together they produce roughly 288 spurious
+  transitions a day. Ship 3.1 over them and the alerting engine's first
+  act is to manufacture the false alarms the pitch promises to remove.
+
 ### 3.2 Correlation window
 Collapse alerts arriving within N seconds along a dependency chain into
 one root-cause incident.
 
+- **`incident` is a first-class row, not a view over alerts.** It needs
+  `opened_at`, `closed_at`, `root_cause_device_id`,
+  `root_cause_interface_id`, `root_cause_confidence`, `method[]`, `state`.
+  A view cannot hold a root cause that was true at 02:14 and is no longer
+  true at 07:00, and the 07:00 reading is the one that matters.
+
 ### 3.3 Suppression with audit
 Every suppressed alert records why, which dependency, and at what
 confidence. Non-negotiable: "the tool decided" is not an answer at 2am.
+
+- **`confidence_at_decision` and `threshold_at_decision` are snapshots
+  written at suppression time, never a join to the live `dependency` row.**
+  Confidence is computed from evidence and recomputed continuously; an
+  audit trail that re-derives its reason at read time is not an audit
+  trail, it is a guess about the past that will eventually disagree with
+  the journal.
+- **Decide `discovery_run.started_at` here** — populate it server-side at
+  request receipt, or drop it as a false measurement. See open question 10.
+  Until then run duration is unmeasurable from the database, so a collector
+  slowing toward its interval is invisible until it starts missing cycles.
 
 *Exit phase:* simulated core-switch failure yields **1 incident, not
 40 alerts**, with a correct root cause and a full audit trail.
