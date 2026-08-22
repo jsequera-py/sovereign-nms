@@ -118,6 +118,12 @@ internal loop, with jitter so 50 collectors don't stampede.
 
 *Exit:* topology stays current for 24h unattended.
 
+**Done 2026-08-22 — met 5/6, with one recorded exception.** 546
+`discovery_run` rows against 273 journal cycles × 2 inventories, zero failed
+cycles, scorer baseline held. One stale link, attributed to the MateBook dock
+leaving the network; the pass condition was mis-specified and is amended in
+`HANDOFF.md`, where the full record lives.
+
 ### 1.3 Counter deltas
 `metric_sample` holds raw counters. Rates require deltas with
 wrap-around handling (32-bit wrap, counter reset on reboot).
