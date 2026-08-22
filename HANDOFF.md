@@ -2,7 +2,7 @@
 
 Paste this into a new chat, along with `ROADMAP.md`, to resume.
 
-Last updated 2026-08-20. State below was verified on the machine, not assumed.
+Last updated 2026-08-22. State below was verified on the machine, not assumed.
 
 ---
 
@@ -74,7 +74,7 @@ on-prem) only.
 | 1.1 Collector ingest client | **done** |
 | 1.2 Scheduler — step 1, reachability persisted | **done** |
 | 1.2 Scheduler — step 2, the timer | **done** |
-| 1.2 Scheduler — 24h exit test | **next action** |
+| 1.2 Scheduler — 24h exit test | **passed 5/6, 2026-08-22** — exception recorded |
 | 1.3 Counter deltas | not started |
 | 1.4 Real device in the pipeline | **done** |
 | 2 Dependency direction | not started — settle identity design first |
@@ -98,6 +98,27 @@ whatever is already in the database.
 ---
 
 ## Open finding: topology does not decay, and that is a problem
+
+**Write-path half answered 2026-08-22 by the exit test.** With the timer
+running, `rollup_confidence()` *does* drive a link to `stale`:
+`rb951g-lab ↔ 64:c9:01:a9:42:7e` went stale after its evidence aged out at
+2026-08-21 13:30 UTC. Decay works when the rollup runs — what was broken was
+that nothing ran it. The measurement below describes an unpolled system, not
+this one.
+
+**But the rollup zeroes `confidence`.** That link read `0.80` (lldp +
+mac_table) and now reads `0`. `interface-design.md` §4 requires a stale link to
+keep its last confidence and lose only its authority — `0.80 · unverified 30h`,
+never a decayed number. The write path does the opposite. Two consequences: the
+§4 render cannot read `link.confidence`, and a Phase 2 threshold test against
+`dependency_trusted = 0.80` reads a stale link as maximally untrustworthy
+rather than unverified — a different claim, and one nobody decided to make.
+
+**Recoverable, and cheaply.** `link_evidence` keeps both rows with
+`observed_at` and `raw_claim` intact, so last-known confidence is computable on
+the read path with no schema change and nothing owed by Phase 3. What stays
+open is narrower: whether `link.confidence` should be zeroed at all. Decide
+before Phase 2.3 calibrates the threshold.
 
 Measured 2026-08-20, before the scheduler existed. Last poll **776 minutes**
 earlier — 13 hours, 25× the 30-minute `link_evidence_fresh` window. The
@@ -638,7 +659,9 @@ both remain open.
 
 ## Open questions
 
-1. **Does the topology decay at all without a poll?** See the finding above.
+1. **Does the topology decay at all without a poll?** See the finding above —
+   **the write-path half was answered 2026-08-22**: with the timer running the
+   rollup does set `state = stale`, and zeroes `confidence` doing it.
    Probably the highest-value question here, because it changes what a UI can
    honestly display.
    **Partially settled 2026-08-21.** `interface-design.md` §4 computes
@@ -710,7 +733,51 @@ both remain open.
 
 ---
 
-## Next action in full — the 24-hour exit test
+## Result — the 24-hour exit test, run 2026-08-22 19:27 UTC
+
+**Passed 5 of 6. Accepted with the exception recorded below.**
+
+| # | Check | Observed | Verdict |
+|---|---|---|---|
+| 1 | `minutes_since_last_run` | 2.9 | pass |
+| 1 | `cross_site_links` | 0 | pass |
+| 3 | `discovery_run` over 24h | **546** | pass (band 540–560) |
+| 2 | scorer | 88.9% / 100%, 0 false links | pass |
+| 4 | link states | 18 active, **1 stale** | **fail** |
+| 5 | `metric_sample` | 238,348 rows / 59 MB | recorded |
+| 6 | journal | 273 `Finished`, zero `fail` | pass |
+
+**Two independent measurements agree to the row.** 273 journal cycles × 2
+inventories = 546, which is the `discovery_run` count exactly. Zero failed
+cycles. The window was verified clean before measuring: uptime 60h36m, so no
+reboot inside it.
+
+**Check 4 in full.** One stale link: `rb951g-lab ↔ 64:c9:01:a9:42:7e`, the
+MateBook dock placeholder (`unpolled`, no vendor, no site). Both evidence rows
+— `lldp` and `mac_table`, reported by the MikroTik — last observed
+2026-08-21 13:30:15 UTC, when the laptop left the dock. The MikroTik itself was
+polled 30s before the test. Nothing simulated decayed: the scorer's 16/16 and
+the link table do not disagree.
+
+**The pass condition was mis-specified, and that is the finding.** Written
+2026-08-20 while all 19 links were fresh, it assumed every endpoint would still
+be present 24 hours later — but 3 of the 19 depend on real hardware, one of
+which is a laptop that is not a fixture of the lab. **Amended condition for
+future runs, dated 2026-08-22:** no *simulated* link in `stale`; a
+real-hardware link may age out and must be attributed to a named device before
+the run is accepted. The original condition is not retroactively relaxed — this
+run stands recorded as 5/6.
+
+**Retention data point (open question 5).** 238,348 `metric_sample` rows and
+59 MB after ~47h of unattended polling on 17 targets. Do not extrapolate yet:
+it is unconfirmed whether a `reset_data.sh` ran inside that window, so the
+per-day rate is a lower bound until `min(ts)` is checked.
+
+The recipe below is retained for re-runs.
+
+---
+
+## The recipe — the 24-hour exit test
 
 Run after **20:40 UTC on 2026-08-21** (14:40 local, UTC−6). Do not poll
 manually first.
