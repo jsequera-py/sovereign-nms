@@ -1,0 +1,132 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+    body { margin: 0; background: #0d1013; color: #dfe4e8;
+           font-family: 'IBM Plex Sans', system-ui, sans-serif; }
+    a { color: #4aa8d8; } a:hover { color: #7cc4e8; }
+    .mono { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; }
+    .sheet { padding: 32px 34px 40px; }
+    .eyebrow { font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: .14em;
+               text-transform: uppercase; color: #5c666e; }
+    h1 { font-size: 24px; font-weight: 600; margin: 8px 0 8px; letter-spacing: -.01em; }
+    .lede { font-size: 13.5px; line-height: 1.55; color: #8b959e; margin: 0 0 22px; max-width: 760px; }
+    .row { display: flex; gap: 18px; border: 1px solid #272e35; background: #14181c;
+           padding: 15px 18px; margin-bottom: 10px; }
+    .mark { width: 3px; flex: none; align-self: stretch; }
+    .body { flex: 1; min-width: 0; }
+    .title { display: flex; align-items: baseline; gap: 9px; }
+    .dev { font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 500; }
+    .cond { font-size: 13.5px; color: #8b959e; }
+    .meta { font-size: 12px; color: #5c666e; margin-top: 6px; }
+    .counts { display: flex; gap: 26px; flex: none; align-items: flex-start; text-align: right; }
+    .cnum { font-family: 'IBM Plex Mono', monospace; font-size: 27px; font-weight: 500; line-height: 1; }
+    .clab { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: #5c666e; margin-top: 5px; }
+    .audit { border: 1px solid #272e35; border-top: 0; background: #101418; padding: 4px 18px 14px 39px;
+             margin: -10px 0 10px; }
+    .ahead { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: #5c666e;
+             padding: 12px 0 8px; }
+    .arow { display: flex; gap: 14px; padding: 7px 0; border-top: 1px solid #1b2127; font-size: 12.5px; }
+    .adev { font-family: 'IBM Plex Mono', monospace; width: 116px; flex: none; color: #8b959e; }
+    .awhy { color: #8b959e; flex: 1; }
+  </style>
+</helmet>
+
+<div class="sheet">
+  <div class="eyebrow">Sovereign NMS · visual language 04</div>
+  <h1>Incidents — the home screen</h1>
+  <p class="lede">Not a metrics wall. The two integers that carry the entire product claim —
+    raised and suppressed — sit on the row itself, at the largest type size on the screen.
+    Everything else is reached from here.</p>
+
+  <div class="row">
+    <div class="mark" style="background:#e5484d"></div>
+    <div class="body">
+      <div class="title"><span class="dev">dist-sw-01</span><span class="cond">unreachable</span></div>
+      <div class="meta">root cause · confidence <span class="mono" style="color:#3ec98f">0.86</span> ·
+        <span class="mono">default_route_distance, stp_root</span> · opened <span class="mono">02:14</span>, 4m ago ·
+        evidence <span class="mono">2m</span></div>
+    </div>
+    <div class="counts">
+      <div><div class="cnum" style="color:#e5484d">1</div><div class="clab">raised</div></div>
+      <div><div class="cnum" style="color:#5c666e">39</div><div class="clab">suppressed</div></div>
+      <div><div class="cnum" style="color:#8b959e">12</div><div class="clab">devices</div></div>
+    </div>
+  </div>
+
+  <div class="audit">
+    <div class="ahead">Suppression audit — why 39 alerts did not page anyone</div>
+    <div class="arow">
+      <span class="adev">acc-sw-03</span>
+      <span class="awhy">device_unreachable — depends on <span class="mono" style="color:#dfe4e8">dist-sw-01</span>
+        via interface link, confidence at decision <span class="mono" style="color:#dfe4e8">0.84</span>
+        ≥ threshold <span class="mono">0.80</span> · <span class="mono">02:14:09</span></span>
+    </div>
+    <div class="arow">
+      <span class="adev">acc-sw-03 ether4</span>
+      <span class="awhy">interface_down — same dependency, same decision · <span class="mono">02:14:09</span></span>
+    </div>
+    <div class="arow">
+      <span class="adev">acc-sw-01</span>
+      <span class="awhy">device_unreachable — depends on <span class="mono" style="color:#dfe4e8">dist-sw-01</span>
+        via interface link, confidence at decision <span class="mono" style="color:#dfe4e8">0.86</span>
+        · <span class="mono">02:14:11</span></span>
+    </div>
+    <div class="arow" style="color:#5c666e">
+      <span class="adev">+ 36 more</span>
+      <span class="awhy">every one carries its dependency, its confidence at the moment of the decision, and its timestamp.</span>
+    </div>
+    <div class="arow" style="border-top:1px solid #272e35; color:#5c666e">
+      <span class="adev" style="color:#5c666e">not eligible</span>
+      <span class="awhy" style="color:#5c666e">Device-fidelity links are never suppression-capable — we know the boxes are
+        adjacent, not which ports. Nothing reached through one appears in this list, whatever its confidence.</span>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="mark" style="background:#e5484d"></div>
+    <div class="body">
+      <div class="title"><span class="dev">acc-sw-07</span><span class="cond">unreachable</span></div>
+      <div class="meta">root cause <span style="color:#d9a441">undetermined</span> ·
+        strongest candidate <span class="mono">acc-sw-06</span> at
+        <span class="mono" style="color:#d9a441">0.61</span>, below the
+        <span class="mono">0.80</span> suppression threshold ·
+        opened <span class="mono">02:31</span> · evidence <span class="mono">3m</span></div>
+    </div>
+    <div class="counts">
+      <div><div class="cnum" style="color:#d9a441">4</div><div class="clab">raised</div></div>
+      <div><div class="cnum" style="color:#5c666e">0</div><div class="clab">suppressed</div></div>
+      <div><div class="cnum" style="color:#8b959e">4</div><div class="clab">devices</div></div>
+    </div>
+  </div>
+
+  <p class="lede" style="margin:2px 0 22px; font-size:12.5px">
+    Below threshold, nothing is suppressed and all four alerts page. That is the correct outcome and
+    the row says so plainly — <strong style="color:#dfe4e8;font-weight:600">an uncertain root cause
+    is never quietly upgraded into a confident one</strong>. A wrong suppression hides a real outage.</p>
+
+  <div class="row" style="opacity:.62">
+    <div class="mark" style="background:#9a86f7"></div>
+    <div class="body">
+      <div class="title"><span class="dev">rb951g-lab</span><span class="cond">SNMP filtered — advisory</span></div>
+      <div class="meta">answering, view restricted · <span class="mono">reach_status = filtered</span> ·
+        opened <span class="mono">01:52</span> · never escalated to an outage, because the device
+        never stopped answering · evidence <span class="mono">2m</span></div>
+    </div>
+    <div class="counts">
+      <div><div class="cnum" style="color:#9a86f7">1</div><div class="clab">raised</div></div>
+      <div><div class="cnum" style="color:#5c666e">0</div><div class="clab">suppressed</div></div>
+      <div><div class="cnum" style="color:#8b959e">1</div><div class="clab">devices</div></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

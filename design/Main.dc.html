@@ -1,0 +1,167 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+    body { margin: 0; background: #0d1013; color: #dfe4e8;
+           font-family: 'IBM Plex Sans', system-ui, sans-serif; }
+    a { color: #4aa8d8; } a:hover { color: #7cc4e8; }
+    .mono { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; }
+    .sheet { padding: 36px 36px 44px; }
+    .eyebrow { font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: .14em;
+               text-transform: uppercase; color: #5c666e; }
+    h1 { font-size: 26px; font-weight: 600; margin: 8px 0 10px; letter-spacing: -.01em; }
+    .lede { font-size: 14px; line-height: 1.55; color: #8b959e; max-width: 640px; margin: 0; }
+    .rule { border: 0; border-top: 1px solid #272e35; margin: 30px 0 22px; }
+    h2 { font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+         color: #dfe4e8; margin: 0 0 4px; }
+    .h2sub { font-size: 12.5px; color: #5c666e; margin: 0 0 18px; }
+    .spec { display: flex; gap: 28px; align-items: flex-start; margin-bottom: 18px; }
+    .cap { flex: 1; padding-top: 6px; }
+    .capname { font-size: 13px; font-weight: 600; margin: 0 0 5px; }
+    .captxt { font-size: 12.5px; line-height: 1.5; color: #8b959e; margin: 0; }
+    .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+    .cell { border: 1px solid #272e35; background: #14181c; padding: 12px 14px 10px; }
+    .celllab { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #5c666e;
+               letter-spacing: .06em; margin-bottom: 8px; }
+  </style>
+</helmet>
+
+<div class="sheet">
+  <div class="eyebrow">Sovereign NMS · visual language 01</div>
+  <h1>Trust primitives</h1>
+  <p class="lede">Every claim the interface renders carries three attributes: how it was
+    established, how strongly, and how long ago. They ride on independent visual channels so
+    any combination stays readable — and so no number can appear without its age.</p>
+
+  <hr class="rule">
+
+  <h2>Fidelity — line construction</h2>
+  <p class="h2sub">What we know about the endpoints. Never colour: colour is reserved for state.</p>
+
+  <div class="spec">
+    <svg width="430" height="92" viewBox="0 0 430 92" aria-label="interface fidelity link">
+      <rect x="8" y="32" width="132" height="38" rx="2" fill="#1b2127" stroke="#333c45"/>
+      <text x="74" y="56" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="12" fill="#dfe4e8">optiplex</text>
+      <rect x="290" y="32" width="132" height="38" rx="2" fill="#1b2127" stroke="#333c45"/>
+      <text x="356" y="56" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="12" fill="#dfe4e8">rb951g-lab</text>
+      <line x1="140" y1="51" x2="290" y2="51" stroke="#dfe4e8" stroke-width="2"/>
+      <line x1="144" y1="43" x2="144" y2="59" stroke="#dfe4e8" stroke-width="2"/>
+      <line x1="286" y1="43" x2="286" y2="59" stroke="#dfe4e8" stroke-width="2"/>
+      <text x="150" y="74" font-family="'IBM Plex Mono',monospace" font-size="10" fill="#8b959e">eno2</text>
+      <text x="280" y="74" text-anchor="end" font-family="'IBM Plex Mono',monospace" font-size="10" fill="#8b959e">ether1</text>
+      <rect x="182" y="26" width="66" height="20" rx="2" fill="#0d1013" stroke="#333c45"/>
+      <text x="215" y="40" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="11" fill="#dfe4e8">0.80</text>
+    </svg>
+    <div class="cap">
+      <p class="capname">Interface fidelity — suppression-capable</p>
+      <p class="captxt">Terminals close on both nodes and both ports are named. The line lands
+        somewhere specific, which is what makes the link usable for alert suppression.</p>
+    </div>
+  </div>
+
+  <div class="spec">
+    <svg width="430" height="92" viewBox="0 0 430 92" aria-label="device fidelity link">
+      <rect x="8" y="32" width="132" height="38" rx="2" fill="#1b2127" stroke="#333c45"/>
+      <text x="74" y="56" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="12" fill="#dfe4e8">rb951g-lab</text>
+      <rect x="290" y="32" width="132" height="38" rx="2" fill="#14181c" stroke="#333c45" stroke-dasharray="4 3"/>
+      <text x="356" y="52" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="11" fill="#8b959e">0c:93:a5:24:86:e0</text>
+      <text x="356" y="64" text-anchor="middle" font-family="'IBM Plex Sans',sans-serif" font-size="9.5" fill="#5c666e">not polled</text>
+      <line x1="158" y1="51" x2="272" y2="51" stroke="#dfe4e8" stroke-width="2"/>
+      <circle cx="154" cy="51" r="3.5" fill="none" stroke="#dfe4e8" stroke-width="1.5"/>
+      <circle cx="276" cy="51" r="3.5" fill="none" stroke="#dfe4e8" stroke-width="1.5"/>
+      <text x="215" y="74" text-anchor="middle" font-family="'IBM Plex Sans',sans-serif" font-size="10" fill="#5c666e">ports unknown</text>
+      <rect x="182" y="26" width="66" height="20" rx="2" fill="#0d1013" stroke="#333c45"/>
+      <text x="215" y="40" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="11" fill="#dfe4e8">0.65</text>
+    </svg>
+    <div class="cap">
+      <p class="capname">Device fidelity — adjacency only</p>
+      <p class="captxt">Open terminals and a gap at each end: we know the boxes are adjacent, not
+        which ports. RouterOS 6.49 returns <span class="mono">lldpRemLocalPortNum = 0</span>, so
+        this is the honest render, not a degraded one. The dashed node is a neighbour outside the
+        inventory — observed, never polled.</p>
+    </div>
+  </div>
+
+  <hr class="rule">
+
+  <h2>Freshness — stroke pattern</h2>
+  <p class="h2sub">Computed on read from <span class="mono">max(evidence age)</span>. W = 30 min evidence window.
+    Three distinct dash patterns — solid, long-dash, fine-dash — so the state survives greyscale and colour-blindness.</p>
+
+  <div class="grid3">
+    <div class="cell">
+      <div class="celllab">FRESH · age ≤ W</div>
+      <svg width="236" height="46" viewBox="0 0 236 46">
+        <line x1="8" y1="20" x2="228" y2="20" stroke="#dfe4e8" stroke-width="2"/>
+        <line x1="12" y1="13" x2="12" y2="27" stroke="#dfe4e8" stroke-width="2"/>
+        <line x1="224" y1="13" x2="224" y2="27" stroke="#dfe4e8" stroke-width="2"/>
+        <text x="118" y="42" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="10" fill="#3ec98f">0.80 · 2m</text>
+      </svg>
+    </div>
+    <div class="cell">
+      <div class="celllab">AGING · W &lt; age ≤ 2W</div>
+      <svg width="236" height="46" viewBox="0 0 236 46">
+        <line x1="8" y1="20" x2="228" y2="20" stroke="#d9a441" stroke-width="2" stroke-dasharray="12 4"/>
+        <line x1="12" y1="13" x2="12" y2="27" stroke="#d9a441" stroke-width="2"/>
+        <line x1="224" y1="13" x2="224" y2="27" stroke="#d9a441" stroke-width="2"/>
+        <text x="118" y="42" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="10" fill="#d9a441">0.80 · 41m</text>
+      </svg>
+    </div>
+    <div class="cell">
+      <div class="celllab">STALE · age &gt; 2W</div>
+      <svg width="236" height="46" viewBox="0 0 236 46">
+        <line x1="8" y1="20" x2="228" y2="20" stroke="#5c666e" stroke-width="2" stroke-dasharray="3 4"/>
+        <line x1="12" y1="13" x2="12" y2="27" stroke="#5c666e" stroke-width="2"/>
+        <line x1="224" y1="13" x2="224" y2="27" stroke="#5c666e" stroke-width="2"/>
+        <text x="118" y="42" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="10" fill="#5c666e">0.80 · unverified 13h</text>
+      </svg>
+    </div>
+  </div>
+
+  <p class="captxt" style="margin-top:16px; max-width:720px">A stale link keeps its last confidence
+    and loses its authority. <strong style="color:#dfe4e8; font-weight:600">The number is never
+    decayed</strong> — 0.80 was true when it was measured, and inventing 0.42 to represent
+    uncertainty fabricates a measurement that was never taken.</p>
+
+  <hr class="rule">
+
+  <h2>Two channels, six states</h2>
+  <p class="h2sub">Fidelity and freshness never collide, because terminals and stroke are independent.</p>
+
+  <div class="grid3">
+    <div class="cell">
+      <div class="celllab">INTERFACE · FRESH</div>
+      <svg width="236" height="26" viewBox="0 0 236 26"><line x1="8" y1="13" x2="228" y2="13" stroke="#dfe4e8" stroke-width="2"/><line x1="12" y1="6" x2="12" y2="20" stroke="#dfe4e8" stroke-width="2"/><line x1="224" y1="6" x2="224" y2="20" stroke="#dfe4e8" stroke-width="2"/></svg>
+    </div>
+    <div class="cell">
+      <div class="celllab">INTERFACE · AGING</div>
+      <svg width="236" height="26" viewBox="0 0 236 26"><line x1="8" y1="13" x2="228" y2="13" stroke="#d9a441" stroke-width="2" stroke-dasharray="12 4"/><line x1="12" y1="6" x2="12" y2="20" stroke="#d9a441" stroke-width="2"/><line x1="224" y1="6" x2="224" y2="20" stroke="#d9a441" stroke-width="2"/></svg>
+    </div>
+    <div class="cell">
+      <div class="celllab">INTERFACE · STALE</div>
+      <svg width="236" height="26" viewBox="0 0 236 26"><line x1="8" y1="13" x2="228" y2="13" stroke="#5c666e" stroke-width="2" stroke-dasharray="3 4"/><line x1="12" y1="6" x2="12" y2="20" stroke="#5c666e" stroke-width="2"/><line x1="224" y1="6" x2="224" y2="20" stroke="#5c666e" stroke-width="2"/></svg>
+    </div>
+    <div class="cell">
+      <div class="celllab">DEVICE · FRESH</div>
+      <svg width="236" height="26" viewBox="0 0 236 26"><line x1="24" y1="13" x2="212" y2="13" stroke="#dfe4e8" stroke-width="2"/><circle cx="20" cy="13" r="3.5" fill="none" stroke="#dfe4e8" stroke-width="1.5"/><circle cx="216" cy="13" r="3.5" fill="none" stroke="#dfe4e8" stroke-width="1.5"/></svg>
+    </div>
+    <div class="cell">
+      <div class="celllab">DEVICE · AGING</div>
+      <svg width="236" height="26" viewBox="0 0 236 26"><line x1="24" y1="13" x2="212" y2="13" stroke="#d9a441" stroke-width="2" stroke-dasharray="12 4"/><circle cx="20" cy="13" r="3.5" fill="none" stroke="#d9a441" stroke-width="1.5"/><circle cx="216" cy="13" r="3.5" fill="none" stroke="#d9a441" stroke-width="1.5"/></svg>
+    </div>
+    <div class="cell">
+      <div class="celllab">DEVICE · STALE</div>
+      <svg width="236" height="26" viewBox="0 0 236 26"><line x1="24" y1="13" x2="212" y2="13" stroke="#5c666e" stroke-width="2" stroke-dasharray="3 4"/><circle cx="20" cy="13" r="3.5" fill="none" stroke="#5c666e" stroke-width="1.5"/><circle cx="216" cy="13" r="3.5" fill="none" stroke="#5c666e" stroke-width="1.5"/></svg>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

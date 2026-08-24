@@ -1,0 +1,103 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+    body { margin: 0; background: #0d1013; color: #dfe4e8;
+           font-family: 'IBM Plex Sans', system-ui, sans-serif; }
+    a { color: #4aa8d8; } a:hover { color: #7cc4e8; }
+    .mono { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; }
+    .sheet { padding: 36px 36px 44px; }
+    .eyebrow { font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: .14em;
+               text-transform: uppercase; color: #5c666e; }
+    h1 { font-size: 26px; font-weight: 600; margin: 8px 0 10px; letter-spacing: -.01em; }
+    .lede { font-size: 14px; line-height: 1.55; color: #8b959e; margin: 0; }
+    .rule { border: 0; border-top: 1px solid #272e35; margin: 28px 0 20px; }
+    h2 { font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+         margin: 0 0 4px; }
+    .h2sub { font-size: 12.5px; color: #5c666e; margin: 0 0 16px; }
+    .sw { display: flex; align-items: center; gap: 12px; padding: 7px 0;
+          border-bottom: 1px solid #1b2127; }
+    .chipcol { width: 26px; height: 26px; border-radius: 2px; flex: none; }
+    .swname { font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; width: 92px; flex: none; }
+    .swhex { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5c666e;
+             width: 74px; flex: none; }
+    .swuse { font-size: 12px; color: #8b959e; }
+    .typerow { padding: 10px 0; border-bottom: 1px solid #1b2127; }
+    .typemeta { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #5c666e;
+                letter-spacing: .05em; margin-bottom: 4px; }
+  </style>
+</helmet>
+
+<div class="sheet">
+  <div class="eyebrow">Sovereign NMS · visual language 02</div>
+  <h1>Foundations</h1>
+  <p class="lede">Dark-first, because the screen this is read on is a 2am screen. Everything is
+    self-hostable: IBM Plex is open-licensed and vendors into the air-gapped bundle without a CDN.</p>
+
+  <hr class="rule">
+
+  <h2>Type</h2>
+  <p class="h2sub">Two faces. Prose in sans, every machine-derived value in mono.</p>
+
+  <div class="typerow">
+    <div class="typemeta">IBM PLEX SANS 600 · 26/30 · screen titles</div>
+    <div style="font-size:26px; font-weight:600; letter-spacing:-.01em">Incident 4f2a · dist-sw-01</div>
+  </div>
+  <div class="typerow">
+    <div class="typemeta">IBM PLEX SANS 400 · 13.5/21 · prose, explanations, audit reasoning</div>
+    <div style="font-size:13.5px; line-height:1.55; color:#8b959e">Suppressed because acc-sw-03 depends on dist-sw-01 through an interface-fidelity link.</div>
+  </div>
+  <div class="typerow">
+    <div class="typemeta">IBM PLEX MONO 400 · 12.5 · device names, ports, identifiers</div>
+    <div class="mono" style="font-size:12.5px">rb951g-lab · ether1 · 0c:93:a5:24:86:e0</div>
+  </div>
+  <div class="typerow">
+    <div class="typemeta">IBM PLEX MONO 500 · 11 · confidence, ages, counts</div>
+    <div class="mono" style="font-size:11px; font-weight:500">0.86 · 2m · 39 suppressed</div>
+  </div>
+
+  <hr class="rule">
+
+  <h2>Neutrals</h2>
+  <p class="h2sub">Cool-toned, low saturation. Four surfaces, three text weights.</p>
+
+  <div class="sw"><div class="chipcol" style="background:#0d1013; border:1px solid #272e35"></div><div class="swname">bg</div><div class="swhex">#0d1013</div><div class="swuse">page ground</div></div>
+  <div class="sw"><div class="chipcol" style="background:#14181c"></div><div class="swname">surface</div><div class="swhex">#14181c</div><div class="swuse">cards, table rows</div></div>
+  <div class="sw"><div class="chipcol" style="background:#1b2127"></div><div class="swname">surface-2</div><div class="swhex">#1b2127</div><div class="swuse">nodes, raised chips</div></div>
+  <div class="sw"><div class="chipcol" style="background:#272e35"></div><div class="swname">line</div><div class="swhex">#272e35</div><div class="swuse">dividers, borders</div></div>
+  <div class="sw"><div class="chipcol" style="background:#333c45"></div><div class="swname">line-2</div><div class="swhex">#333c45</div><div class="swuse">node outlines, emphasis borders</div></div>
+  <div class="sw"><div class="chipcol" style="background:#171d23"></div><div class="swname">selected</div><div class="swhex">#171d23</div><div class="swuse">active nav row, active filter</div></div>
+  <div class="sw"><div class="chipcol" style="background:#dfe4e8"></div><div class="swname">text</div><div class="swhex">#dfe4e8</div><div class="swuse">primary</div></div>
+  <div class="sw"><div class="chipcol" style="background:#8b959e"></div><div class="swname">dim</div><div class="swhex">#8b959e</div><div class="swuse">secondary, prose</div></div>
+  <div class="sw"><div class="chipcol" style="background:#5c666e"></div><div class="swname">faint</div><div class="swhex">#5c666e</div><div class="swuse">labels, stale content</div></div>
+
+  <hr class="rule">
+
+  <h2>Semantic</h2>
+  <p class="h2sub">State, or a value's relationship to a threshold — never decoration, and never the
+    sole carrier of meaning: every state also has a glyph and a word, and every freshness has a dash
+    pattern. Surface tints (the degraded banner, the root-cause node) are derived from these five and
+    are not separate colours.</p>
+
+  <div class="sw"><div class="chipcol" style="background:#3ec98f"></div><div class="swname">ok</div><div class="swhex">#3ec98f</div><div class="swuse">reachable, fresh, healthy</div></div>
+  <div class="sw"><div class="chipcol" style="background:#d9a441"></div><div class="swname">aging</div><div class="swhex">#d9a441</div><div class="swuse">evidence past the window, degraded</div></div>
+  <div class="sw"><div class="chipcol" style="background:#e5484d"></div><div class="swname">critical</div><div class="swhex">#e5484d</div><div class="swuse">unreachable, open incident</div></div>
+  <div class="sw"><div class="chipcol" style="background:#9a86f7"></div><div class="swname">filtered</div><div class="swhex">#9a86f7</div><div class="swuse">answered, view restricted</div></div>
+  <div class="sw"><div class="chipcol" style="background:#4aa8d8"></div><div class="swname">info</div><div class="swhex">#4aa8d8</div><div class="swuse">links, dependency direction</div></div>
+
+  <p class="lede" style="font-size:12.5px; margin-top:18px">
+    <strong style="color:#dfe4e8; font-weight:600">Filtered is not a shade of unreachable.</strong>
+    A device that answered and restricted the view is a different fact from a device that did not
+    answer, and a firewall rule in this lab already produced a phantom outage. Giving it its own
+    hue is the cheapest differentiator in the product.</p>
+</div>
+</x-dc>
+</body>
+</html>
