@@ -230,6 +230,39 @@ def upsert_interfaces(conn, tenant_id: str, device_id: str, ifaces) -> tuple[int
     return len(seen_names), retired
 
 
+def write_device_metrics(conn, tenant_id: str, device_id: str,
+                         uptime_ticks: int | None) -> int:
+    """
+    Device-level samples, written in the same transaction as that run's
+    interface samples so they share one `ts` and join to them exactly.
+
+    sysUpTime is the time base for rate computation. It is the device's own
+    clock, read by the same walk that read the counters, so it is immune to
+    collector delay, POST latency and clock skew on the collector — all of
+    which land in the denominator if wall-clock timestamps are used instead.
+
+    It is also the only way to tell a reboot (uptime went backwards, counters
+    legitimately restarted) from an agent anomaly (uptime did not). Those
+    must not render alike.
+
+    Caveat: sysUpTime is the agent's uptime, not the host's. Restarting snmpd
+    resets it while the kernel counters keep climbing, so one valid rate
+    sample is suppressed. Suppressing a real rate is the safe direction;
+    inventing one across a reboot is not.
+    """
+    if uptime_ticks is None:
+        return 0
+    with conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO metric_sample
+                   (tenant_id, entity_type, entity_id, metric_name, ts,
+                    value, unit, source)
+               VALUES (%s, 'device', %s, 'sys_uptime_ticks', now(), %s,
+                       'ticks', 'inferred'::source_kind)""",
+            (tenant_id, device_id, float(uptime_ticks)))
+    return 1
+
+
 def write_metrics(conn, tenant_id: str, device_id: str, ifaces, if_ids: dict[str, str]):
     rows = []
     for iface in ifaces.values():

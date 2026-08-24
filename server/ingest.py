@@ -140,6 +140,7 @@ def process_run(conn, tenant_id: str, site_id: str | None,
         seen, _ = store.upsert_interfaces(conn, tenant_id, device_id, ifaces)
         if_ids = store.interface_ids(conn, device_id)
         store.write_metrics(conn, tenant_id, device_id, ifaces, if_ids)
+        store.write_device_metrics(conn, tenant_id, device_id, obs.uptime_ticks)
 
         device_ids[obs.poll_target] = device_id
         interfaces_total += seen
