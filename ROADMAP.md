@@ -180,12 +180,16 @@ device failure is the exact false alarm the pitch promises to remove.
   `optiplex-replay` are two `device_reachability` rows against one device.
   Without aggregation, one device unreachable on one management path
   raises two alerts — the failure mode this product sells against.
-- **Bookkeeping churn must be separable from real interface state change
-  before this raises its first alert.** Two known generators: the stale
-  recorded walk (open question 8) and lldpd advertising Docker `veth*`
-  ports (open question 11). Together they produce roughly 288 spurious
-  transitions a day. Ship 3.1 over them and the alerting engine's first
-  act is to manufacture the false alarms the pitch promises to remove.
+- **Bookkeeping churn — cleared 2026-08-24, prerequisite met.** Two
+  generators were named here: the "stale" recorded walk (open question 8)
+  and lldpd's Docker `veth*` ports (question 11). They were one problem —
+  container plumbing recorded as network infrastructure — and
+  `store.is_ignored_ifname()` in `c742b30` drops those names before any
+  interface row is written. Verified: 226 active / 0 stale across two
+  consecutive polls of the same device, scorer unchanged at 88.9% / 100%.
+  3.1 no longer inherits ~288 spurious transitions a day. The rule that
+  earned this stays: an alerting engine whose first act is to manufacture
+  false alarms discredits the claim it exists to prove.
 
 ### 3.2 Correlation window
 Collapse alerts arriving within N seconds along a dependency chain into
