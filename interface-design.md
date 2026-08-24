@@ -373,6 +373,52 @@ unwritten and expensive after.
 
 ---
 
+## 8. Visual language — `design/`
+
+Six artboards and a canvas manifest, committed 2026-08-22 in `159362e`:
+
+| File | Carries |
+|---|---|
+| `design/Main.dc.html` | trust primitives — the confidence, fidelity and freshness marks |
+| `design/Foundations.dc.html` | type scale, colour roles |
+| `design/States.dc.html` | reachability states, degraded banner, the three empty states |
+| `design/Incidents.dc.html` | incident home screen — screen 1 |
+| `design/Topology.dc.html` | graph slice — screen 5 |
+| `design/Devices.dc.html` | fleet table — screen 3, and per `canvas.json` the one screen buildable against data that exists today |
+| `design/canvas.json` | artboard layout manifest |
+
+Plain HTML with inline styles and inline SVG, deliberately: close to liftable
+into the Jinja templates §5 commits to, with no build step between the picture
+and the page.
+
+**Two encoding rules, and they are independent channels.**
+
+1. **Fidelity rides terminal construction; freshness rides dash pattern.**
+   Interface fidelity closes on both nodes with named ports; device fidelity
+   has open terminals and a gap, because we know the boxes and not the ports.
+   Freshness is carried by the stroke pattern, per §4. The two never share a
+   channel, so all six combinations stay readable — a stale interface-fidelity
+   link and a fresh device-fidelity one must not converge on the same mark.
+2. **Four reachability states, not three.** `filtered` gets its own hue and
+   glyph. A device that answered and restricted the view is not an outage, and
+   every competing tool draws one red dot for both. This is §2's cheap
+   differentiator made visible.
+
+**Implementation note, from the 2026-08-22 exit test.** The artboards render a
+stale link as `0.80 · unverified 30h`, per §4. That number cannot come from
+`link.confidence` — the rollup zeroes it when evidence ages out, confirmed on
+`rb951g-lab ↔ 64:c9:01:a9:42:7e`. Compute it from `link_evidence`, which
+retains `observed_at` and `raw_claim` after the rollup has run. Wiring the
+template to the column is the obvious mistake, and it renders
+`0.00 · unverified 30h` — a lie about a measurement that was actually taken.
+
+**The published canvas artifact is derived, not canonical.** It predates these
+files and carries contradictions they fixed. `design/` at HEAD is the source;
+the artifact gets republished from it, and until that happens it should not be
+read.
+
+---
+
 ## Sources
 
 - Kentik — [The "Single Pane of Glass" Is Dead](https://www.kentik.com/blog/the-single-pane-of-glass-is-dead-what-network-teams-actually-need-is-intelligence/)
