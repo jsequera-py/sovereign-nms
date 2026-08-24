@@ -40,6 +40,8 @@ _Iface = namedtuple(
 def _iface_view(obs) -> dict[int, object]:
     out = {}
     for i in obs.interfaces:
+        if store.is_ignored_ifname(i.if_name):
+            continue
         out[i.if_index] = _Iface(
             if_index=i.if_index, if_name=i.if_name, if_alias=i.if_alias,
             if_type=i.if_type, mac_address=i.mac_address,

@@ -162,6 +162,31 @@ def resolve_device(conn, tenant_id: str, claims: list[IdentityClaim],
     return device_id, created
 
 
+def _is_hex(s: str) -> bool:
+    return bool(s) and all(c in "0123456789abcdef" for c in s.lower())
+
+
+def is_ignored_ifname(name: str | None) -> bool:
+    """
+    Container plumbing that appears in IF-MIB but is not network
+    infrastructure: Docker's veth pairs, its per-network bridges, and docker0.
+
+    Matched on name, not ifIndex, because the ifIndex moves too — observed
+    2026-08-22 on the OptiPlex, where br-6c815583b5f7 was ifIndex 7 in a
+    recorded walk and 5 live.
+
+    Deliberately strict about the hex suffix. `br-lan` on OpenWrt is a real
+    bridge and must not be caught; only a hex-suffixed `br-` is Docker's.
+    """
+    if not name:
+        return False
+    if name.startswith("veth") and _is_hex(name[4:]):
+        return True
+    if name.startswith("br-") and len(name) >= 11 and _is_hex(name[3:]):
+        return True
+    return name.startswith("docker") and name[6:].isdigit()
+
+
 def upsert_interfaces(conn, tenant_id: str, device_id: str, ifaces) -> tuple[int, int]:
     """
     Upsert on (device_id, if_name). Returns (seen, retired).
