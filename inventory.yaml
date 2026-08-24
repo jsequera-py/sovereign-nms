@@ -18,11 +18,11 @@ devices:
     timeout_s: 3
     retries: 1
 
-  # Replay of the walk recorded from this same host. Proves the parser
-  # produces identical results from a file and from the wire.
-  - name: optiplex-replay
-    host: 127.0.0.1
-    recorded: sim/walks/optiplex_real.snmpwalk
+  # optiplex-replay moved to inventory.replay.yaml on 2026-08-24. It resolves
+  # to the same device row as `optiplex` while reading a frozen file, so on a
+  # schedule it wrote a second, stale counter sample at the identical
+  # timestamp — which makes a rate undefined rather than merely wrong. Run it
+  # by hand when the identity-across-transports check is wanted.
 
   # SNMPv3 template — fill in when FortiGate access lands.
   # - name: fortigate-01

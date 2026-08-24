@@ -1,0 +1,22 @@
+# Replay-only inventory. NOT polled by the timer: poll_cycle.sh runs
+# inventory.generated.yaml and inventory.yaml, and nothing else.
+#
+# `optiplex-replay` reads a walk recorded from the OptiPlex and resolves to
+# the SAME device row as the live `optiplex` target. That is the point — it
+# proves the parser produces identical identity from a file and from the
+# wire, which is how Phase 1.4 was verified.
+#
+# It is also why it must not run on a schedule. The file's counters are
+# frozen, so each run writes a stale sample at the same timestamp as the live
+# one, and any rate computed across that pair is undefined: on 2026-08-24 the
+# two eno2 samples read 802,364,178 and 1,987,260,198 at one timestamp.
+#
+# Run deliberately:
+#   .venv/bin/python -m collector.poll --inventory inventory.replay.yaml
+#
+# Expect it to inject one junk counter sample for lo, eno2 and wlo1. Rates
+# across that interval are not meaningful; the next live poll recovers.
+devices:
+  - name: optiplex-replay
+    host: 127.0.0.1
+    recorded: sim/walks/optiplex_real.snmpwalk
