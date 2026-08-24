@@ -38,12 +38,17 @@ polling began **2026-08-20 20:40 UTC**. Both fleets are in the database — 14
 simulated devices and 3 real targets — and both are re-polled every 5
 minutes. See **The scheduler** below for what was built and why.
 
-### Next: the 24-hour exit test
+### Next: 1.3 counter deltas
 
-Phase 1.2's roadmap exit test. Run it **after 20:40 UTC on 2026-08-21**
-(14:40 local, UTC−6), and **do not poll manually first** — polling first is
-precisely what makes the test meaningless. Full detail under **Next action
-in full** at the bottom of this file.
+Phase 1.2 closed 2026-08-22. The 24-hour exit test scored 5/6; the failed
+check was attributed to the MateBook dock leaving the network and the
+condition amended. Full record under **Result — the 24-hour exit test** at the
+bottom of this file. Two Phase 1.2 sub-tests remain deliberately unrun — the
+overlap test and the wedged-run test, see **The scheduler**.
+
+**Before 1.3, re-record `sim/walks/optiplex_real.snmpwalk`** (open question 8).
+It generates ~288 spurious interface transitions a day, and 1.3 is where those
+start being read as data rather than ignored as noise.
 
 ---
 
