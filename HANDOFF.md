@@ -2,7 +2,7 @@
 
 Paste this into a new chat, along with `ROADMAP.md`, to resume.
 
-Last updated 2026-08-22. State below was verified on the machine, not assumed.
+Last updated 2026-08-24. State below was verified on the machine, not assumed.
 
 ---
 
@@ -684,22 +684,45 @@ both remain open.
    does `lldpRemLocalPortNum` come back non-zero on FortiOS? Authorization
    confirmed; reachability is the open problem — this is the scenario-2 test
    case.
-5. Retention: how long do metrics and evidence live before rollup? One cycle
-   writes ~400 `metric_sample` rows on a 14-device fleet; at 5-minute
-   intervals that is ~115k rows/day. Becomes real the moment the timer runs.
+5. **Retention — measured 2026-08-24, before the reset that wiped the sample.**
+   `metric_sample` held 395,524 rows / 99 MB over 3d 19h. The clean timer-era
+   rate, taken between two timer-era snapshots (238,348 rows at 08-22 19:27 →
+   395,524 at 08-24 02:25), is **~121,800 rows/day** — the ~115k estimate was
+   good. Structure: 217 interfaces × 2 metrics (`if_in_octets`,
+   `if_out_octets`, exactly half each) × ~274 cycles, plus the OptiPlex being
+   polled twice a cycle. **~250 bytes/row including indexes**, so ~30 MB/day at
+   lab scale and **~561 rows / ~0.14 MB per interface per day**.
+   Extrapolated: 500 devices averaging 24 ports is 12,000 interfaces →
+   **~6.9M rows/day, ~1.7 GB/day, ~630 GB/year uncompressed.** That fits a 4TB
+   NVMe for a year and then does not. **No TimescaleDB compression policy is
+   configured** — that, not row expiry, is the first lever, and it is now a
+   Phase 6.4 item with a number attached rather than a question mark.
+   Still open: how long evidence lives, and whether rollup precedes expiry.
 6. Is the air-gapped variant of scenario 1 a market worth targeting?
 7. `vendor` is still inferred client-side, though `sys_object_id` and
    `sys_descr` both travel on the wire. Strictly a conclusion, not an
    observation. Moving `infer_vendor()` server-side would let detection
    improvements reach already-deployed collectors — decide before Phase 6.2.
-8. `sim/walks/optiplex_real.snmpwalk` is stale (6 interfaces vs 7 live), so
-   each poll marks the other's extra interface stale. In Phase 3 an interface
-   flapping state every poll is a false-alert generator.
-   **With the timer running this fires ~288 times a day**, not once per manual
-   poll. Re-record the walk before Phase 1.3.
-   Also blocks Phase 5: interface status cannot be displayed until bookkeeping
-   churn is separable from real state change. Now a stated Phase 3.1
-   prerequisite in `ROADMAP.md`.
+8. **RESOLVED 2026-08-24 — and the original diagnosis was wrong.** Kept because
+   the wrong version is instructive. It said the recorded walk was stale
+   (6 interfaces vs 7 live) and should be re-recorded. Measured on the host,
+   the difference is entirely Docker plumbing: the recording holds
+   `vethd544e8c`, which no longer exists; live holds `veth171ed6e` and
+   `veth37eff0c`, which did not exist when it was taken. `br-6c815583b5f7` was
+   ifIndex 7 recorded and 5 live — the decision to key interfaces on
+   `(device_id, if_name)` validated by data.
+   The generator was never the file. `upsert_interfaces()` marks any active
+   interface absent from a poll as stale, and `optiplex` and `optiplex-replay`
+   resolve to **one** device row while carrying different interface sets, so
+   each poll retired the other's veths, twice a cycle, indefinitely.
+   Re-recording would have held until the next container restart.
+   **Fixed in `c742b30`:** `store.is_ignored_ifname()` drops container-managed
+   names (`veth<hex>`, `br-<hex>`, `docker<n>`) inside `_iface_view()`,
+   server-side so it reaches already-deployed collectors. Strict on the hex
+   suffix — `br-lan` on OpenWrt is a real bridge. Verified after a reset and
+   re-poll: scorer unchanged at 88.9% / 100%, OptiPlex 8 interfaces → 3, zero
+   Docker-named interface rows, and 226 active / 0 stale across two consecutive
+   polls of the same device. The recorded walk never needs re-recording.
 9. All simulated devices share `mgmt_ip = 127.0.0.1`, so every poll logs 14
    identity-reassignment lines. Harmless — `mgmt_ip` cannot resolve identity —
    but it buries the case where a management IP genuinely moves.
@@ -723,18 +746,17 @@ both remain open.
     Now a stated Phase 3.3 decision in `ROADMAP.md`: run duration is the only
     signal that a collector is slowing toward its interval, and Phase 5
     screen 6 (collector health) cannot show it otherwise.
-11. **lldpd advertises Docker veth interfaces as local LLDP ports.** Observed
-    2026-08-20: `lldpLocPortId` on the OptiPlex includes `veth171ed6e` and
-    `veth37eff0c` alongside `eno2` and `wlo1`. Those names regenerate on
-    container restart, so the local port table churns whenever `nms-db` or
-    `nms-snmpsim` is recreated. No neighbour is ever seen on them, so no false
-    link results today — but it is a second source of interface churn beside
-    the stale recorded walk in question 8, and Phase 3 has to tell real
-    interface state changes from bookkeeping noise. Fix is likely a lldpd
-    interface filter (`configure system interface pattern`), not collector
-    code — a device genuinely reporting a port should be believed.
-    Second generator of the churn in question 8, with the same Phase 3.1
-    consequence.
+11. **Largely resolved 2026-08-24 by the same fix as question 8 — and its
+    proposed remedy was aimed at the wrong subsystem.** It blamed lldpd and
+    proposed `configure system interface pattern`. The churning table is
+    IF-MIB `ifDescr` served by net-snmp, not lldpd's local port table, so that
+    change would have fixed nothing measurable. `store.is_ignored_ifname()`
+    now drops those names before any interface row is written (`c742b30`).
+    **What remains is narrow:** lldpd still advertises veths as local LLDP
+    ports. No neighbour is ever seen on them so no false link results, but if
+    one ever were, the link would reference a local interface with no row and
+    fidelity would quietly degrade to device level rather than erroring. Worth
+    an lldpd filter eventually. Not a Phase 3 blocker.
 
 ---
 
