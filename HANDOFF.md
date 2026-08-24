@@ -46,9 +46,10 @@ condition amended. Full record under **Result — the 24-hour exit test** at the
 bottom of this file. Two Phase 1.2 sub-tests remain deliberately unrun — the
 overlap test and the wedged-run test, see **The scheduler**.
 
-**Before 1.3, re-record `sim/walks/optiplex_real.snmpwalk`** (open question 8).
-It generates ~288 spurious interface transitions a day, and 1.3 is where those
-start being read as data rather than ignored as noise.
+**Nothing blocks 1.3.** The interface churn that sat here as a prerequisite is
+fixed in `c742b30` — container plumbing is dropped server-side, so the ~288
+spurious transitions a day are gone and the recorded walk needs no
+re-recording. See open questions 8 and 11.
 
 ---
 
