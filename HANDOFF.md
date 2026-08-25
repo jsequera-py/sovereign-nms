@@ -8,25 +8,32 @@ Last updated 2026-08-24. State below was verified on the machine, not assumed.
 
 ## START HERE
 
-### Verified state (2026-08-20)
+### Verified state (2026-08-25)
 
 Most recent commits at the time of writing. The docs commit that carries this
 file sits on top of them, so HEAD is one ahead of this list by design — do not
 "correct" it.
 
 ```
-6756ae1 deploy: collector timer (5min interval) and poll_cycle wrapper
-3911903 docs: refresh handoff with verified state; add identity design note
-a2175bc deploy: db restart policy, systemd unit for the ingest API
-ed6f9f4 scripts: wipe device_reachability tables on reset
-eb56552 ingest: persist per-device reachability before the scheduler lands
+7f7730e docs: repo map — design/, working-method.md, inventory.replay.yaml, 006
+22b9244 docs: interface-design §5 — rate view constraints for phase 5
+0bdadb2 docs: mark 1.3 done, correct the 32-bit wrap claim
+d93da42 docs: close 1.3 in handoff, record RouterOS counter-reset finding
+e85dd81 migrations: 006 interface_rate view, rates computed on read
+ecc4362 ingest: persist sys_uptime_ticks as a device-level metric sample
+bd1dc50 inventory: move optiplex-replay out of the scheduled poll
+c742b30 ingest: ignore container-managed interfaces (veth, br-<hex>, docker0)
 ```
 
-Working tree clean, local and origin in sync. `migrations/` holds 001–005.
-`deploy/` holds `nms-api.service`, `nms-collector.service` and
-`nms-collector.timer`; the installed copies under `/etc/systemd/system` were
-verified byte-identical to the repo copies. `nms-db` and `nms-snmpsim` up,
-`nms-api` active.
+Working tree clean, local and origin in sync. `migrations/` holds 001–006, and
+`schema_migration` records 006 applied 2026-08-24 23:39 UTC. `deploy/` holds
+`nms-api.service`, `nms-collector.service` and `nms-collector.timer`; the
+installed copies under `/etc/systemd/system` were verified byte-identical to
+the repo copies. `nms-db` and `nms-snmpsim` up.
+
+**`nms-api` was restarted after `ecc4362`, so it runs current ingest code.**
+It holds `server.ingest` in memory: editing that module changes nothing until
+the service is restarted, and a test run before the restart proves nothing.
 
 Host clock is NTP-synchronised (chrony, sub-millisecond offset). Host, RTC
 and Postgres all run UTC, deliberately — the database stores UTC, and
@@ -34,9 +41,21 @@ scenario 2 puts collectors in other timezones. Read local time with
 `TZ=America/Mexico_City journalctl ...` rather than changing the host.
 
 **`nms-collector.timer` is installed, enabled and running.** Unattended
-polling began **2026-08-20 20:40 UTC**. Both fleets are in the database — 14
-simulated devices and 3 real targets — and both are re-polled every 5
-minutes. See **The scheduler** below for what was built and why.
+polling began **2026-08-20 20:40 UTC**; observed spacing ~5m20s. Both fleets
+are in the database — 14 simulated devices and **2** real targets — and both
+are re-polled. See **The scheduler** below.
+
+**Data state, which affects any query run against this database.**
+`reset_data.sh` was run 2026-08-24 ~03:00 UTC, so all metric history starts
+there. `rb951g-lab` was rebooted 2026-08-25 00:31 UTC for the 1.3 exit test,
+so its `sysUpTime` is small and its counters restarted. `interface_rate`
+carries ~44 `counter_decrease` and ~72 `no_time_base` rows, all predating
+`bd1dc50`, all suppressed — permanent debris from the replay double-write,
+not a live fault.
+
+**`optiplex-replay` is no longer scheduled** (`bd1dc50`). It lives in
+`inventory.replay.yaml` and is run by hand only; a manual run injects one junk
+counter sample for `lo`, `eno2` and `wlo1`.
 
 ### Next: Phase 2 — dependency direction
 

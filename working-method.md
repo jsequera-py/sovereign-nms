@@ -43,6 +43,9 @@ Every step ends with a table of checks and their pass conditions.
 - **`grep -n` over `grep -c`.** Read the lines rather than trust a predicted
   count. `grep -c` counts matching *lines*, not occurrences — a distinction
   that produced three wrong predictions in one session.
+- **`grep` on the OptiPlex is aliased to ugrep.** A pattern starting with a
+  dash is parsed as an option, so it needs `--` first:
+  `grep -cF -- '- name: foo'`. Every paste-ready block is affected.
 - **The chat session states time, dates and machine state only from pasted
   output or from a tool it actually ran.** A session that asserted an unchecked
   clock announced the 24-hour exit-test window open while it was still ~18
