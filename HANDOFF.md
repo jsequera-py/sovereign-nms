@@ -370,7 +370,7 @@ Working tree `~/nms` on the OptiPlex. **Push after every real change.**
 collector/          snmp.py mib.py lldp.py fdb.py store.py topology.py poll.py
 server/             app.py (FastAPI)  ingest.py (run processing)
 common/             wire.py (collector <-> server payload contract)
-migrations/         001..005
+migrations/         001..006  (006 = the interface_rate view)
 scripts/            migrate.sh  reset_data.sh  score_topology.py
                     create_collector_key.py  poll_cycle.sh
 sim/                topology.yaml (GROUND TRUTH)  genfleet.py  data/*.snmprec
@@ -378,9 +378,12 @@ sim/                topology.yaml (GROUND TRUTH)  genfleet.py  data/*.snmprec
 deploy/             nms-api.service  nms-collector.service
                     nms-collector.timer  host-setup.sh
                     install-units.sh
+design/             six .dc.html artboards + canvas.json
+                    (visual language — interface-design.md §8)
 docker-compose.yml  ROADMAP.md  HANDOFF.md  identity-design.md
-                    interface-design.md
+                    interface-design.md  working-method.md
                     inventory.yaml  inventory.generated.yaml
+                    inventory.replay.yaml
 ```
 
 `.gitignore` covers `.env`, `.venv/`, `__pycache__/`, `sim/data/*.snmprec`,
