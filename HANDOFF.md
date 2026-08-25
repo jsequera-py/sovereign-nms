@@ -38,18 +38,44 @@ polling began **2026-08-20 20:40 UTC**. Both fleets are in the database — 14
 simulated devices and 3 real targets — and both are re-polled every 5
 minutes. See **The scheduler** below for what was built and why.
 
-### Next: 1.3 counter deltas
+### Next: Phase 2 — dependency direction
 
-Phase 1.2 closed 2026-08-22. The 24-hour exit test scored 5/6; the failed
-check was attributed to the MateBook dock leaving the network and the
-condition amended. Full record under **Result — the 24-hour exit test** at the
-bottom of this file. Two Phase 1.2 sub-tests remain deliberately unrun — the
-overlap test and the wedged-run test, see **The scheduler**.
+Phases 1.2 and 1.3 are both closed. 1.2 scored 5/6 on its 24-hour exit test
+(full record at the bottom of this file); two of its sub-tests remain
+deliberately unrun — the overlap test and the wedged-run test, see **The
+scheduler**. 1.3 passed 2026-08-25.
 
-**Nothing blocks 1.3.** The interface churn that sat here as a prerequisite is
-fixed in `c742b30` — container plumbing is dropped server-side, so the ~288
-spurious transitions a day are gone and the recorded walk needs no
-re-recording. See open questions 8 and 11.
+**1.3 result.** Rates and utilisation are computed on the *read* path by the
+`interface_rate` view (migration 006, `e85dd81`) from raw counters — nothing
+derived is stored. The time base is `sysUpTime`, persisted per device as a
+`metric_sample` row (`ecc4362`), because the device's own clock keeps
+collector delay, POST latency and NTP skew out of the denominator.
+Verified by rebooting `rb951g-lab` at 2026-08-25 00:31 UTC: the sample pair
+spanning the reboot reported `uptime_reset` on all 14 rows with `rate_bps`
+null. `ether1-gateway` showed `delta_octets = -5,294,865,861`, which unguarded
+renders as a -230 Mbps reading — or as a fabricated 230 Mbps burst if someone
+"fixes" it with `abs()`. Idle ports report `uptime_reset` too, not a
+comfortable zero: no rate is trustworthy across that boundary, including a
+zero one.
+
+**Three caveats the pass does not cover.**
+
+1. The `counter_decrease` branch — counters drop while uptime does not — was
+   never freshly reproduced. See the RouterOS finding under **Vendor
+   realities**. Its only evidence is 44 rows of replay debris predating
+   `bd1dc50`: real data, accidentally generated.
+2. **The simulated fleet cannot test any of this.** Its `sysUpTime` is frozen
+   by the static `.snmprec` files, so it never exercises the uptime time base
+   or the reboot path. Measured: one distinct uptime value across 218 samples
+   per simulated device. Only real hardware can grade this.
+3. `interface_rate` filtered by interface runs in 38 ms. Filtered only by time
+   it is 221 ms at ~101k rows, and it scales with the whole table rather than
+   the range asked for — the `ts` predicate cannot be pushed past `lag()`
+   without removing the row the window needs. **Phase 5's fleet-wide view must
+   not read it directly;** that screen needs a continuous aggregate.
+
+**Before Phase 2, implement the identity veto rule.** Direction inference
+leans hard on device rows being right.
 
 ---
 
@@ -81,7 +107,7 @@ on-prem) only.
 | 1.2 Scheduler — step 1, reachability persisted | **done** |
 | 1.2 Scheduler — step 2, the timer | **done** |
 | 1.2 Scheduler — 24h exit test | **passed 5/6, 2026-08-22** — exception recorded |
-| 1.3 Counter deltas | not started |
+| 1.3 Counter deltas | **done 2026-08-25** — read-path rates, `interface_rate` |
 | 1.4 Real device in the pipeline | **done** |
 | 2 Dependency direction | not started — settle identity design first |
 | 3 Alerting and suppression | not started — this is the sellable demo |
@@ -515,6 +541,15 @@ deterministic and auditable. 8B plus grounding; the 70B requirement is cut.
 ---
 
 ## Vendor realities discovered on actual hardware
+
+**RouterOS 6.49 "Reset Counters" does not reset the SNMP counters.** Tested
+2026-08-25 on `rb951g-lab`: Winbox's Reset Counters on `ether1-gateway`,
+followed by a poll 127 s later, showed `delta_octets = +460,823` — the IF-MIB
+`ifHCInOctets`/`ifHCOutOctets` had kept climbing throughout. Winbox resets what
+Winbox displays, not the MIB. Consequence: the counter-reset-without-reboot
+branch of `interface_rate` cannot be exercised on this hardware that way, and a
+full reboot is the only means of resetting SNMP counters here — which also
+resets `sysUpTime`, so it tests the other branch instead.
 
 **MikroTik RouterOS 6.49 returns `lldpRemLocalPortNum = 0`** for every
 neighbour — who is adjacent, but not on which port. It omits
