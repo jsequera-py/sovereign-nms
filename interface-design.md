@@ -320,8 +320,25 @@ if and when the full-fleet interactive map earns its place does a vendored
 Cytoscape.js get added — and by then it is one screen's dependency, not the
 app's foundation.
 
-**Deliberately not chosen:** Grafana as the app shell (§1.1), any charting
-library before Phase 1.3 produces real rates.
+**Deliberately not chosen:** Grafana as the app shell (§1.1). The hold on
+charting is lifted — Phase 1.3 landed 2026-08-25, and `interface_rate`
+(migration 006) now serves real rates and utilisation.
+
+**Read rates through the view, but never fleet-wide.** Measured 2026-08-25:
+filtered by `interface_id` it returns in 38 ms, which is fine for screen 4.
+Filtered only by time it takes 221 ms over ~101k rows, and it scales with the
+size of the whole table rather than the range requested — the `ts` predicate
+cannot be pushed past `lag()` without discarding the row the window needs.
+**Screens 1 and 5 must not read it unfiltered.** At 500 devices that shape is
+tens of seconds, and the answer is a continuous aggregate when that screen is
+built, not a longer timeout.
+
+**Rate is not utilisation.** The view emits `rate_bps` for every interface but
+`util_pct` only where a physical denominator exists. A bridge has no link speed
+and loopback reports a fictional 10 Mbps — both must render as "—", never as
+0%, or the screen invents a measurement. An interface that is administratively
+down but carries a speed does render 0%, which is true; whether the UI prefers
+"—" there is a screen decision, not a view one.
 
 **Placement.** The UI is part of `server/`, not `collector/`. The Phase 6.2
 thin site collector ships without `server/` and therefore without a UI, which
