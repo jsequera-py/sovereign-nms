@@ -125,10 +125,29 @@ leaving the network; the pass condition was mis-specified and is amended in
 `HANDOFF.md`, where the full record lives.
 
 ### 1.3 Counter deltas
-`metric_sample` holds raw counters. Rates require deltas with
-wrap-around handling (32-bit wrap, counter reset on reboot).
+`metric_sample` holds raw counters. Rates are derived from consecutive
+samples on the read path.
+
+**The 32-bit wrap clause that stood here was wrong; corrected 2026-08-25.**
+The collector has always polled the 64-bit `ifHCInOctets`/`ifHCOutOctets`
+(`1.3.6.1.2.1.31.1.1.1.6` and `.10`). A 32-bit octet counter wraps in about 34
+seconds at 1 Gbps, so at a 5-minute interval two samples cannot tell one wrap
+from nine, and "handling" it would mean guessing a multiplier — a fabricated
+measurement of exactly the kind this project refuses elsewhere. What genuinely
+needs handling is a counter reset, and separating a reboot from an agent
+anomaly needs `sysUpTime`, not arithmetic.
 
 *Exit:* interface utilisation renders correctly across a device reboot.
+
+**Done 2026-08-25.** `interface_rate` (migration 006, `e85dd81`) computes rate
+and utilisation on the read path from raw counters; `sys_uptime_ticks` is
+persisted per device (`ecc4362`) and serves as the time base, keeping collector
+delay and clock skew out of the denominator. Verified by rebooting
+`rb951g-lab`: the sample pair spanning the reboot returned `uptime_reset` with
+a null rate on all 14 rows, instead of the -230 Mbps reading the raw delta
+would have produced. Rate is emitted for every interface; utilisation only
+where a physical denominator exists — a bridge has no link speed and loopback
+reports a fictional one. Caveats and measurements in `HANDOFF.md`.
 
 ### 1.4 Real device in the pipeline
 MikroTik is configured but in no inventory. Add it and the OptiPlex.
