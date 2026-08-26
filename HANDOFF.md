@@ -521,6 +521,14 @@ second poll does not change that.
 - Links carry **fidelity**: `interface` (suppression-capable) or `device`
 - Canonical ordering prevents one cable being stored twice
 - **Confidence is computed from evidence, never written directly**
+- **`link.pinned` exempts a link from the rollup entirely.**
+  `rollup_confidence()` filters `WHERE pinned = FALSE`, and `auto_edge_pct`
+  counts `NOT pinned` as the automatic share. A pinned link never decays and
+  no absence of evidence can retract it — a permanent dependency claim, and
+  therefore a permanent suppression path. Decide in Phase 3 whether
+  suppression may act on one. Confirmed in source 2026-08-25
+  (`migrations/001_core_schema.sql:162`, `collector/topology.py:256`,
+  `server/ingest.py:182`); previously undocumented.
 
 **Identity**
 - **Resolving:** serial, chassis_id, base_mac, sysName
@@ -735,6 +743,15 @@ both remain open.
    That separates the display question from the write-side one. **Still open:
    should `rollup_confidence()` also set `link.state` on write?** The two may
    coexist; they must not disagree on screen.
+   **Write path confirmed in source 2026-08-25.** `collector/topology.py:270`
+   runs `UPDATE link SET confidence = 0, state = 'stale'` when no fresh
+   evidence remains — the rollup sets *both*. The remaining decision is one
+   line wide: drop `confidence = 0` from that statement. `state` already
+   carries "do not trust this", and leaving the column at its last computed
+   value makes `0.80 · unverified 30h` readable straight from the row,
+   retiring the `link_evidence` reconstruction `interface-design.md` §8
+   currently mandates. Zero is not a measurement; it is the absence of one
+   written as though it were.
 2. Cross-device FDB correlation for the last 2 links, accepting precision
    risk?
 3. Alert thresholds — static, or baselined per interface?
@@ -805,6 +822,18 @@ both remain open.
     Now a stated Phase 3.3 decision in `ROADMAP.md`: run duration is the only
     signal that a collector is slowing toward its interval, and Phase 5
     screen 6 (collector health) cannot show it otherwise.
+    **Cause found in source 2026-08-25 — both proposed remedies were
+    unnecessary.** `store.connect()` opens with `autocommit=False`, and
+    `process_run()` INSERTs the run row at `server/ingest.py:103` while
+    UPDATEing `finished_at = now()` at line 190, both inside one
+    transaction. PostgreSQL's `now()` is `transaction_timestamp()`, so every
+    call within a transaction returns the identical value. The fix is
+    `clock_timestamp()` on the UPDATE. **It still does not answer the
+    question you want answered:** those timestamps bracket ingest
+    processing, not the poll. The ~5s SNMP phase happens on the collector
+    before the POST, so measuring a collector slowing toward its interval
+    needs the collector to report its own start time on the wire — an
+    observation, which the wire contract permits.
 11. **Largely resolved 2026-08-24 by the same fix as question 8 — and its
     proposed remedy was aimed at the wrong subsystem.** It blamed lldpd and
     proposed `configure system interface pattern`. The churning table is
