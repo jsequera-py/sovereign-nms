@@ -834,6 +834,14 @@ both remain open.
     before the POST, so measuring a collector slowing toward its interval
     needs the collector to report its own start time on the wire — an
     observation, which the wire contract permits.
+    **Fixed and verified 2026-08-26** (`a3ec23c`). `nms-api` was restarted in
+    the gap between cycles at 03:45:40 UTC; the 03:50 cycle then wrote two
+    rows with `duration` 0.562 s and 0.058 s, against `00:00:00` on every
+    earlier row. **What remains open is the residual, not the bug:** those
+    durations measure ingest processing only. The collector's ~5 s SNMP phase
+    is still unmeasured, so a collector slowing toward its interval stays
+    invisible until it misses a cycle. Closing that needs a `poll_started_at`
+    field on the wire — an observation, which the contract permits. Phase 3.3.
 11. **Largely resolved 2026-08-24 by the same fix as question 8 — and its
     proposed remedy was aimed at the wrong subsystem.** It blamed lldpd and
     proposed `configure system interface pattern`. The churning table is
