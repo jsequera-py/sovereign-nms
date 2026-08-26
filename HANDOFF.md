@@ -873,6 +873,27 @@ both remain open.
     one ever were, the link would reference a local interface with no row and
     fidelity would quietly degrade to device level rather than erroring. Worth
     an lldpd filter eventually. Not a Phase 3 blocker.
+12. **The scorer keys by device pair, so it cannot see a second link between
+    the same two devices.** `discovered_links()` does
+    `out[sorted(device_a, device_b)] = row`, while `link_pair_unique` is
+    `(device_a, device_b, endpoint_a, endpoint_b) NULLS NOT DISTINCT`. Three
+    cases follow and the scorer treats them alike: two device-fidelity rows
+    on one pair are impossible, both endpoints being NULL; one device-fidelity
+    plus one interface-fidelity row is **bug #3 recurring**, and is silently
+    overwritten; two interface-fidelity rows on different ports are a **LAG or
+    dual-homed pair — legitimate — and one is dropped from the score**. No
+    such pair exists in `sim/topology.yaml`, so the 88.9% baseline is honest
+    today; the blind spot opens the moment one does.
+    **Closes the `dedup-fix` question, open since 2026-08-19.** Both laptop
+    artifacts were hashed 2026-08-26: `scorer/score_topology.py` is
+    byte-identical to the deployed file (`4b46a9dd…`), and
+    `dedup-fix/score_topology.py` (`e1f98359…`) differs by exactly one
+    feature, a duplicate-pair check, across 7 hunks with identical SQL and
+    imports. **It was not deployed and should not be:** it flags a LAG as a
+    duplicate and collapses it. The correct fix keys on
+    `(device pair, endpoint pair)` and reports a defect only when one pair
+    carries both fidelities. Do it when a LAG enters the ground-truth fleet.
+    `C:\ARK\NMS` needs no further reconciliation.
 
 ---
 
