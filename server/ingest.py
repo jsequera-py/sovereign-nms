@@ -186,9 +186,14 @@ def process_run(conn, tenant_id: str, site_id: str | None,
         r = cur.fetchone()
         auto_pct = (r["auto"] / r["total"] * 100.0) if r["total"] else None
 
+        # clock_timestamp(), not now(). In PostgreSQL now() is
+        # transaction_timestamp() and returns the same value for every call
+        # inside one transaction. This connection runs autocommit=False, so
+        # now() here returned the run row's own started_at to the
+        # microsecond, and made run duration unmeasurable from the database.
         cur.execute(
             """UPDATE discovery_run
-                  SET finished_at = now(), devices_seen = %s,
+                  SET finished_at = clock_timestamp(), devices_seen = %s,
                       links_asserted = %s, links_retracted = %s,
                       auto_edge_pct = %s
                 WHERE run_id = %s""",
