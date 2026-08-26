@@ -23,10 +23,12 @@ Everything below either serves that claim or should be cut.
 
 ## Built and measured
 
-**Schema** — 4 migrations applied.
+**Schema** — 6 migrations applied (001–006).
 `device`, `device_identity`, `interface`, `link`, `link_evidence`,
 `dependency`, `metric_sample` (Timescale hypertable), `discovery_run`,
-`collector_key`. Multi-tenant and site-scoped from the first row.
+`collector_key`, `device_reachability`, `device_reachability_change`,
+plus the `interface_rate` view. Multi-tenant and site-scoped from the
+first row.
 
 Design decisions that survived contact with real hardware:
 
