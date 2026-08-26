@@ -2,7 +2,7 @@
 
 Paste this into a new chat, along with `ROADMAP.md`, to resume.
 
-Last updated 2026-08-25. State below was verified on the machine, not assumed.
+Last updated 2026-08-26. State below was verified on the machine, not assumed.
 
 ---
 
