@@ -266,8 +266,15 @@ def rollup_confidence(conn, tenant_id: str) -> dict[str, int]:
                 # Nothing fresh asserts this link any more. Do not delete
                 # it — mark it stale so the retraction is visible and
                 # reversible.
+                #
+                # state carries the distrust; confidence keeps its last
+                # computed value. Zeroing it writes the absence of evidence
+                # as though it were a measurement, and interface-design.md
+                # §4 needs the last known number to render
+                # "0.80 · unverified 30h". A stale link loses its
+                # authority, not its history.
                 cur.execute(
-                    "UPDATE link SET confidence = 0, state = 'stale' WHERE link_id = %s",
+                    "UPDATE link SET state = 'stale' WHERE link_id = %s",
                     (row["link_id"],))
                 stats["stale"] += 1
                 continue
