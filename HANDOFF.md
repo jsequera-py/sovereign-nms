@@ -2,7 +2,7 @@
 
 Paste this into a new chat, along with `ROADMAP.md`, to resume.
 
-Last updated 2026-08-24. State below was verified on the machine, not assumed.
+Last updated 2026-08-25. State below was verified on the machine, not assumed.
 
 ---
 
@@ -751,8 +751,9 @@ both remain open.
    polled twice a cycle. **~250 bytes/row including indexes**, so ~30 MB/day at
    lab scale and **~561 rows / ~0.14 MB per interface per day**.
    Extrapolated: 500 devices averaging 24 ports is 12,000 interfaces →
-   **~6.9M rows/day, ~1.7 GB/day, ~630 GB/year uncompressed.** That fits a 4TB
-   NVMe for a year and then does not. **No TimescaleDB compression policy is
+   **~6.9M rows/day, ~1.7 GB/day, ~630 GB/year uncompressed.** That is about
+   six years on a 4TB NVMe, not one — the earlier one-year claim was wrong by
+   roughly 6×. **No TimescaleDB compression policy is
    configured** — that, not row expiry, is the first lever, and it is now a
    Phase 6.4 item with a number attached rather than a question mark.
    Still open: how long evidence lives, and whether rollup precedes expiry.
