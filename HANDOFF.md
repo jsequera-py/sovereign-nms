@@ -8,21 +8,22 @@ Last updated 2026-08-25. State below was verified on the machine, not assumed.
 
 ## START HERE
 
-### Verified state (2026-08-25)
+### Verified state (2026-08-26)
 
 Most recent commits at the time of writing. The docs commit that carries this
 file sits on top of them, so HEAD is one ahead of this list by design — do not
 "correct" it.
 
 ```
-7f7730e docs: repo map — design/, working-method.md, inventory.replay.yaml, 006
-22b9244 docs: interface-design §5 — rate view constraints for phase 5
-0bdadb2 docs: mark 1.3 done, correct the 32-bit wrap claim
-d93da42 docs: close 1.3 in handoff, record RouterOS counter-reset finding
-e85dd81 migrations: 006 interface_rate view, rates computed on read
-ecc4362 ingest: persist sys_uptime_ticks as a device-level metric sample
-bd1dc50 inventory: move optiplex-replay out of the scheduled poll
-c742b30 ingest: ignore container-managed interfaces (veth, br-<hex>, docker0)
+a88e91e scripts: check_identity.py — detect the silent device merge, with a selftest
+a6bf57b docs: close phase 1.2 steps 3 and 4 with measured evidence
+b867e68 docs: scorer collapses same-pair links; close the dedup-fix question
+4c0213d docs: record the confidence formula, retire the interface-design §8 workaround
+8464e57 docs: settle open question 1 — stale links keep their confidence
+5c7b3fa topology: a stale link keeps its last confidence, loses only its authority
+052db27 docs: close open question 10 with the measured result
+a3ec23c ingest: clock_timestamp for finished_at, so run duration is measurable
+513a18d docs: CLAUDE.md — bind the working method to the on-machine agent
 ```
 
 Working tree clean, local and origin in sync. `migrations/` holds 001–006, and
@@ -95,6 +96,79 @@ zero one.
 
 **Before Phase 2, implement the identity veto rule.** Direction inference
 leans hard on device rows being right.
+
+### Session record — 2026-08-26
+
+A review session. Nothing was built toward Phase 2; the work was making the
+record match the machine and closing claims that were asserted rather than
+measured.
+
+**Code changed, both verified on the machine.**
+
+- `a3ec23c` — `finished_at = clock_timestamp()`. `now()` is
+  `transaction_timestamp()` and the connection runs `autocommit=False`, so
+  every `discovery_run` row carried `started_at == finished_at` to the
+  microsecond. Post-fix rows read 0.562 s and 0.058 s. Open question 10.
+- `5c7b3fa` — the rollup no longer zeroes `confidence` on a stale link.
+  Verified by ageing one link's evidence: `active → stale`, 0.95 intact.
+  Full regression run first; scorer unchanged. Open question 1.
+- `a88e91e` — `scripts/check_identity.py`, with a `--selftest` that injects a
+  synthetic duplicate chassis_id and rolls it back. First run: 18 devices,
+  0 violations, selftest fires.
+
+**Claims closed with evidence rather than assertion.** Phase 1.2 steps 3 and
+4 — overlap tested on the real unit, wedged run on a replica; see **The
+scheduler**. And the `dedup-fix` scorer question, open since 2026-08-19, now
+open question 12.
+
+**Documentation corrected.** `ROADMAP.md` claimed 4 migrations with 6
+applied, and omitted two tables and a view. The 4TB retention conclusion was
+wrong by roughly 6× — 630 GB/year is about six years on a 4TB NVMe, not one.
+The evidence model documented two numbers as though they were the rule; the
+rule is a formula. `CLAUDE.md` now binds the on-machine agent to this working
+method, and caught its first violation within one step.
+
+**Project and mirror.** `C:\ARK\NMS\mirror` is a real git clone now, so
+refreshing it is `git pull` rather than a hand copy verified by hash. The
+claude.ai project docs were resynced from the repo and de-duplicated — a
+stale `ROADMAP.md` from 2026-08-18 was being served alongside the current
+one, still claiming 4 migrations and the retired two-poll story.
+
+### Next session — in order
+
+1. **Confirm both eero placeholders carry a `chassis_id` claim.** The whole
+   identity test plan depends on it. `check_identity.py` reports 18 devices
+   but only 14 with a hard identity, so this is not established. If the eeros
+   carry no chassis claim, dropping `eero` from `GENERIC_SYSNAMES` produces a
+   merge with no signature and the plan needs redesign.
+2. Drop `eero` from `GENERIC_SYSNAMES`, reset, re-poll. **`check_identity.py`
+   must report a violation.** That edit is temporary and must never be
+   committed: `git checkout -- collector/store.py` and a clean `git status`
+   before moving on.
+3. Implement the unmatched-identifier veto in `resolve_device()`. Reset,
+   re-poll with `eero` still absent from the denylist. The check must come
+   back clean — proving the veto did the work, not the denylist.
+4. Restore `eero`, reset, re-poll, scorer at 88.9% / 100%.
+5. Then Phase 2.
+
+**Also open, not blocking.**
+
+- `scripts/score_topology.py` and `scripts/create_collector_key.py` are
+  recorded `100644`; `working-method.md` requires `100755` on scripts.
+- The sim rig cannot express a shared sysName. `genfleet.py` writes `sysName`
+  from the device name and seeds `chassis_mac` from that same string, so two
+  devices sharing a name would also share a chassis MAC. A `sysname:` field
+  decoupled from `name` is needed first.
+- `sysUpTime` is a single constant in the generator, so the simulated fleet
+  cannot exercise the 1.3 reboot path.
+- All simulated devices share `mgmt_ip = 127.0.0.1` because snmpsim binds one
+  port. Distinct loopback addresses would cut ~4,000 journal lines a day —
+  but one pair should keep a shared address deliberately, as the standing
+  proof that `mgmt_ip` cannot resolve identity.
+- Four legacy PDFs in the claude.ai project still describe the abandoned
+  architecture.
+- The RouterOS API and Scripting manuals in the project have no stated use;
+  collection is SNMP-only throughout the roadmap.
 
 ---
 
