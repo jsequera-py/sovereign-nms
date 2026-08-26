@@ -752,6 +752,17 @@ both remain open.
    retiring the `link_evidence` reconstruction `interface-design.md` §8
    currently mandates. Zero is not a measurement; it is the absence of one
    written as though it were.
+   **Settled and implemented 2026-08-26** (`5c7b3fa`). `confidence = 0` is
+   gone from the rollup; the statement writes `state = 'stale'` only.
+   Verified by ageing one link's evidence to two hours and polling the real
+   inventory alone: the link moved `active → stale` with `confidence` intact
+   at **0.95**, where the old code would have written `0.00`. Regression run
+   first — reset, both inventories re-polled, scorer unchanged at 88.9% /
+   100%, 16/16 port pairs, zero false links. The read path can now take the
+   last-known number straight from `link.confidence`, so the `link_evidence`
+   reconstruction required by `interface-design.md` §8 is no longer needed.
+   **What stays open is the display half only:** §4's read-path freshness
+   computation and the write-path `state` must not disagree on screen.
 2. Cross-device FDB correlation for the last 2 links, accepting precision
    risk?
 3. Alert thresholds — static, or baselined per interface?
