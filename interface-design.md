@@ -423,13 +423,15 @@ and the page.
    every competing tool draws one red dot for both. This is §2's cheap
    differentiator made visible.
 
-**Implementation note, from the 2026-08-22 exit test.** The artboards render a
-stale link as `0.80 · unverified 30h`, per §4. That number cannot come from
-`link.confidence` — the rollup zeroes it when evidence ages out, confirmed on
-`rb951g-lab ↔ 64:c9:01:a9:42:7e`. Compute it from `link_evidence`, which
-retains `observed_at` and `raw_claim` after the rollup has run. Wiring the
-template to the column is the obvious mistake, and it renders
-`0.00 · unverified 30h` — a lie about a measurement that was actually taken.
+**Implementation note — superseded 2026-08-26.** This section used to say the
+stale-link number could not come from `link.confidence`, because the rollup
+zeroed it, and had to be reconstructed from `link_evidence`. That was fixed at
+the source instead (`5c7b3fa`): `rollup_confidence()` now writes
+`state = 'stale'` alone and leaves `confidence` at its last computed value.
+Verified by ageing one link's evidence and re-polling — `active → stale`, the
+number held at 0.95. **Read the column.** `state` carries the loss of
+authority; `confidence` carries the last measurement, which is exactly what
+`0.95 · unverified 2h` renders.
 
 **The published canvas artifact is derived, not canonical.** It predates these
 files and carries contradictions they fixed. `design/` at HEAD is the source;

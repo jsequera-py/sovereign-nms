@@ -557,7 +557,16 @@ second poll does not change that.
 **Evidence**
 - One row per `(link, source, reporter_device)`. Re-polling refreshes.
 - Freshness window **30 minutes**; must exceed the poll interval
-- Two-sided LLDP → 0.80. One-sided → 0.65.
+- **Confidence is a formula, not a table.** `base = max(SOURCE_BASE of the
+  sources present)`; `score = base + 0.15 × (independent confirmations − 1)`;
+  capped at `AUTO_CEILING` 0.95, or 1.00 when a `manual` source is present,
+  because nothing automated reaches certainty. Bases in
+  `collector/topology.py`: manual 1.00 · lldp 0.65 · cdp 0.60 · api 0.60 ·
+  mac_table 0.40 · arp 0.30 · route 0.25 · traceroute 0.25 · inferred 0.20.
+  One-sided LLDP is therefore 0.65 and two-sided 0.80 — the two numbers this
+  file used to quote were one case of the rule, not the rule itself. Three
+  independent confirmations hit the 0.95 ceiling, which the lab fleet does
+  produce.
 
 **FDB inference is strict**
 - A port qualifies only with exactly one known device and ≤ 6 total MACs
