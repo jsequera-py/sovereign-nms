@@ -126,6 +126,11 @@ cycles, scorer baseline held. One stale link, attributed to the MateBook dock
 leaving the network; the pass condition was mis-specified and is amended in
 `HANDOFF.md`, where the full record lives.
 
+**Steps 3 and 4 of the phase plan closed 2026-08-26.** Overlap tested on the
+real unit — systemd merges a second start, one process, one job. Wedged run
+tested on a replica — `Result=timeout`, killed at the deadline. Phase 1.2 is
+complete; the detail and the one residual are in `HANDOFF.md`.
+
 ### 1.3 Counter deltas
 `metric_sample` holds raw counters. Rates are derived from consecutive
 samples on the read path.

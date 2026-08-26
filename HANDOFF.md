@@ -713,11 +713,33 @@ devices plus 3 real) against `TimeoutStartSec=240` — roughly 40× headroom.
 Overlap is not a practical risk at this fleet size. Observed spacing between
 consecutive timer-driven cycles: 5m 21s.
 
-**Deliberately not done yet:** the overlap test (make a cycle run long and
-confirm systemd refuses a concurrent start) and the wedged-run test (confirm
-`TimeoutStartSec` kills rather than queues). Steps 3 and 4 of the order of
-work in `phase-1.2-plan.md`. Neither is exercised by the 24h exit test, so
-both remain open.
+**Both closed 2026-08-26.**
+
+*Overlap (step 3), tested on the real unit.* `nms-collector.service` was
+started manually and a second `systemctl start` issued 1 s later while the
+cycle was still `activating`. `MainPID` read 2257805 before and after, exactly
+one `poll_cycle.sh` process existed at both readings, and `systemctl
+list-jobs` showed a single merged job. The journal records one
+`Starting`/`Finished` pair, `Result=success`, 7.2 s wall clock. systemd merges
+the second start rather than running a concurrent poll — confirmed, not
+assumed.
+
+*Wedged run (step 4), tested on a replica.* A transient oneshot unit with
+`TimeoutStartSec=20` running `sleep 400` was terminated at 20 s with
+`Result=timeout` — killed, not queued, and nowhere near its 400 s runtime.
+The directive behaves the same on `nms-collector.service`
+(`TimeoutStartSec=240`). What the replica does **not** cover is whether
+killing `poll_cycle.sh` leaves orphaned python children; systemd's default
+`KillMode=control-group` should take them, but that specific claim is
+untested. Cheap to settle when the sim rig is next perturbed — a drop-in
+`TimeoutStartSec=15` plus one unroutable target with a long SNMP timeout.
+
+*How this was measured, including the wrong way.* The first overlap attempt
+was invalid and is kept because the failure is instructive: `systemd-run`
+blocks on the start job by default, so the first run had already timed out
+before the "concurrent" start was issued. `MainPID before: 0` was the tell.
+`--no-block` is required to hold a oneshot in `activating` while a second
+start is attempted.
 
 ---
 
