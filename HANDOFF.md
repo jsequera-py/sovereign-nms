@@ -134,6 +134,85 @@ claude.ai project docs were resynced from the repo and de-duplicated — a
 stale `ROADMAP.md` from 2026-08-18 was being served alongside the current
 one, still claiming 4 migrations and the retired two-poll story.
 
+### Session record — 2026-09-01
+
+A state-reconciliation session. Nothing was built toward Phase 2; the work was
+verifying the machine against the record, and turning the scorer baseline from
+a number in a document into an exit code.
+
+**Code changed, all verified and pushed.**
+
+- `6f139e8` — `check_identity.py` no longer carries a shebang and is mode 644.
+  `/usr/bin/env python3` resolves to system python, which has no psycopg, so
+  a direct `./scripts/check_identity.py` died on import. All Python under
+  `scripts/` is now invoked as `.venv/bin/python scripts/x.py` — the
+  convention `poll_cycle.sh` and both units already used.
+- `eb22c93` — `reset_data.sh --yes` (also `RESET_ASSUME_YES=1`) for
+  non-interactive use. The prompt stays the default; piping `y` would make
+  destruction reflexive. The `[ test ] && VAR=1` idiom was verified safe under
+  `set -e` on both branches.
+- `be214f2` — `scripts/gate.py`. The scorer prints and always exits 0, so the
+  baseline lived only in markdown and in whoever read the terminal. The gate
+  parses `--json` and asserts seven conditions, four never previously
+  enforced: port pairs, `lldp_recall`, fidelity, and `truth_links`. Verified
+  failing on `--min-recall 0.95` and `--truth-links 99`, exit 1 each time with
+  the other six still passing.
+- `4b8c8a1` — `CLAUDE.md` rewritten. See below.
+- `428d8fe` — the next-session sequence, corrected by this audit.
+
+**What the audit found.**
+
+- **Baseline device count is 19 / 15 hard identities, not 18 / 14.** The delta
+  is the MateBook dock, `74bc10bd`, `first_seen 2026-08-28`, carrying one
+  `chassis_id` at 0.8. Nothing unaccounted for.
+- **Both eero placeholders carry a `chassis_id`** and neither carries a
+  `sysname` row. This closes step 1 of the old next-session plan and collapses
+  steps 2 and 3 into one action.
+- **Open question 12 is closed** by `b867e68`. Reference hash for the live
+  scorer: `4b46a9dd217ba44b862cbab549803514334b2306ab62c9f1c76c341b7daa694c`.
+- **Open question 9's mechanism is visible in data.** Exactly one
+  `mgmt_ip / 127.0.0.1 / inferred` row exists — the unique constraint permits
+  only one — and it is reassigned between devices every cycle.
+- **The simulated switches carry 24–26 `base_mac` identity rows each.** If
+  `base_mac` resolves, each device offers ~25 independent chances of a
+  cross-device collision. The veto rule must be sized against that population.
+- Migrations 001–006 confirmed applied; `schema_migration` keys on `filename`,
+  not a version integer. 14 tables, three of which (`site`, `tenant`,
+  `schema_migration`) are absent from `ROADMAP.md`'s list.
+
+**The accidental wipe.** `reset_data.sh` was run inside a verification block
+where the pass condition was "answer `n`, nothing deleted", and `y` was
+entered. 713,262 `metric_sample` rows and 3,243 `discovery_run` rows were
+lost, including the evidence base of the Phase 1.2 exit test — that record
+survives in this file, so no claim is weakened. `tenant` and `collector_key`
+were never in the delete list.
+
+**What it proved.** One poll cycle reproduced the baseline exactly: 0.889
+recall, 1.0 precision, 16/16 port pairs, 0 false links, both named misses
+unchanged. The destructive path is now validated rather than assumed, which is
+precisely the assertion `make check-scorer` will make. It also proved that
+**an interactive prompt is not a safety mechanism** — it fired correctly and
+the database still went. `check-scorer` needs the `.exit-test-running`
+lockfile, not a prompt.
+
+**Why `CLAUDE.md` was rewritten.** Three violations by the on-machine agent in
+one session, all of the same rule. The cause was not defiance: the agent's
+tool results are collapsed to `Ran N shell commands` before the reviewing
+session sees them, so it believed it had reported faithfully. The old rule
+— "quote the command output" — was also satisfiable by a fragment. The new
+file names the mechanism, requires stdout, stderr and exit code for every
+command, and declares a step reported without them void. It also forbids
+editing a file after verifying it, and merging when told to replace: a
+whole-file `Write` against `CLAUDE.md` itself interleaved old and new
+contents, producing a rules file that contradicted itself in three places.
+The replacement was written by heredoc instead.
+
+**Deferred, deliberately.** `gate.py`'s four input-failure branches — non-zero
+exit, empty stdout, invalid JSON, missing key — are written and read but
+unexercised. Proving them means temporarily breaking the scorer, which is a
+change to a file under test, so it is a separate step. Each branch is three
+lines and exits immediately.
+
 ### Next session — in order
 
 **Step 1 of the previous plan is answered.** Both eero placeholders carry a
