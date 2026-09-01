@@ -136,11 +136,21 @@ one, still claiming 4 migrations and the retired two-poll story.
 
 ### Next session — in order
 
-1. **Confirm both eero placeholders carry a `chassis_id` claim.** The whole
-   identity test plan depends on it. `check_identity.py` reports 18 devices
-   but only 14 with a hard identity, so this is not established. If the eeros
-   carry no chassis claim, dropping `eero` from `GENERIC_SYSNAMES` produces a
-   merge with no signature and the plan needs redesign.
+**Step 1 of the previous plan is answered.** Both eero placeholders carry a
+`chassis_id` claim at confidence 0.8 (`8713a9be` → `0c:93:a5:24:86:e0`,
+`b2141ede` → `30:34:22:d7:1b:00`), and neither carries a `sysname` identity
+row, because `eero` is in `GENERIC_SYSNAMES` and the claim was never written.
+The redesign risk is retired: dropping `eero` from the denylist makes both
+assert `sysname = eero`, the second resolution merges onto the first, and the
+merged row then holds two chassis_ids — exactly the signature
+`check_identity.py` detects. **Old steps 2 and 3 collapse into one action.**
+
+1. **Build the Makefile** — `make check` (seconds, read-only: identity, tree
+   modes, unit drift) and `make check-scorer` (minutes, destructive:
+   `reset_data.sh --yes` → poll both inventories → `gate.py`). Default target
+   prints the list and does nothing. `check-scorer` aborts if
+   `.exit-test-running` exists. The accidental wipe on 2026-09-01 proved a
+   prompt is not an interlock: it fired correctly and the database still went.
 2. Drop `eero` from `GENERIC_SYSNAMES`, reset, re-poll. **`check_identity.py`
    must report a violation.** That edit is temporary and must never be
    committed: `git checkout -- collector/store.py` and a clean `git status`
@@ -148,13 +158,22 @@ one, still claiming 4 migrations and the retired two-poll story.
 3. Implement the unmatched-identifier veto in `resolve_device()`. Reset,
    re-poll with `eero` still absent from the denylist. The check must come
    back clean — proving the veto did the work, not the denylist.
-4. Restore `eero`, reset, re-poll, scorer at 88.9% / 100%.
-5. Then Phase 2.
+4. Restore `eero`, reset, re-poll, `make check-scorer` green.
+5. **Phase 2.0 — direction ground truth.** `ROADMAP.md` orders 2.1 (inference)
+   before 2.2 (the scorer that grades it), which inverts the discipline that
+   produced every honest number here. Add upstream/downstream labels to
+   `sim/topology.yaml`, extend the scorer to read them, and confirm it reports
+   0% direction accuracy against an empty `dependency` table. A scorer that
+   can fail before anything exists to grade is one worth trusting.
+6. Then 2.1 inference, then 2.3 threshold calibration.
+
+**Sizing note for the veto.** The simulated switches carry 24–26 `base_mac`
+identity rows each. If `base_mac` resolves, every device offers ~25
+independent chances of a cross-device collision. Size the veto against that
+population deliberately rather than discovering it afterwards.
 
 **Also open, not blocking.**
 
-- `scripts/score_topology.py` and `scripts/create_collector_key.py` are
-  recorded `100644`; `working-method.md` requires `100755` on scripts.
 - The sim rig cannot express a shared sysName. `genfleet.py` writes `sysName`
   from the device name and seeds `chassis_mac` from that same string, so two
   devices sharing a name would also share a chassis MAC. A `sysname:` field
