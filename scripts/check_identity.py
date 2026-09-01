@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Identity health check — detect the silent device merge.
 
