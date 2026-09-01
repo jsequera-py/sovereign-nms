@@ -1089,6 +1089,30 @@ start is attempted.
     carries both fidelities. Do it when a LAG enters the ground-truth fleet.
     `C:\ARK\NMS` needs no further reconciliation.
 
+13. **Unpolled placeholders never refresh `last_seen`.** Observed 2026-09-01:
+    both eeros sit frozen at `2026-08-26 04:18:24` and the MateBook dock at
+    `2026-08-28 02:15:58`, while every polled device reads within minutes of
+    the current time. Yet their links are `active` with fresh evidence, so the
+    devices *are* being re-observed every cycle — the link row is updated and
+    the device row is not. **Device freshness and link freshness disagree by
+    days on the same entity.** Harmless today. It becomes wrong the moment
+    Phase 3 alerts on device staleness or Phase 5 renders "last seen" for a
+    leaf device — and leaf devices are exactly what a customer's access layer
+    is made of. Decide whether an LLDP sighting should touch the placeholder's
+    `last_seen`, or whether the UI must read link evidence age instead. Note
+    this is the write-path twin of question 1's display half.
+
+14. **`gate.py`'s four input-failure branches are unexercised.** Non-zero
+    subprocess exit, empty stdout, invalid JSON, and missing key are each
+    written and were read line by line, but none has been made to fire.
+    Proving them means temporarily breaking `score_topology.py`, which is a
+    change to a file under test, so it was deliberately deferred rather than
+    folded into the same step. Each branch is three lines and exits before the
+    condition loop, so a broken scorer cannot produce a partial pass — but
+    that is an argument from reading, not a measurement. Cheap to settle:
+    point `SCORER_CMD` at a stub that exits 1, then at one printing nothing,
+    then at one printing `{}`.
+
 ---
 
 ## Result — the 24-hour exit test, run 2026-08-22 19:27 UTC
