@@ -12,8 +12,14 @@ set -euo pipefail
 
 DB_URL="${DB_URL:-postgresql://nms:nms_dev_only@127.0.0.1:5432/nms}"
 
-read -rp "Delete all devices, interfaces, links and metrics? [y/N] " ans
-[ "$ans" = "y" ] || { echo "aborted"; exit 0; }
+ASSUME_YES=0
+[ "${1:-}" = "--yes" ] && ASSUME_YES=1
+[ "${RESET_ASSUME_YES:-0}" = "1" ] && ASSUME_YES=1
+
+if [ "$ASSUME_YES" != "1" ]; then
+    read -rp "Delete all devices, interfaces, links and metrics? [y/N] " ans
+    [ "$ans" = "y" ] || { echo "aborted"; exit 0; }
+fi
 
 psql "$DB_URL" -v ON_ERROR_STOP=1 <<'SQL'
 BEGIN;
