@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -241,3 +242,6 @@ def health(caller: Caller = Depends(authenticate), conn=Depends(db)):
         "last_run_finished": last,
         "minutes_since_last_run": stale_minutes,
     }
+
+
+app.mount("/ui", StaticFiles(directory=Path(__file__).resolve().parent.parent / "web", html=True), name="ui")
