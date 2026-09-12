@@ -316,15 +316,21 @@ def record_reachability(conn, tenant_id: str, poll_target: str,
                    error           = EXCLUDED.error,
                    last_attempt_at = now(),
                    changed_at      = CASE WHEN %s THEN now()
-                                          ELSE device_reachability.changed_at END""",
+                                          ELSE device_reachability.changed_at END
+               RETURNING device_id""",
             (tenant_id, poll_target, device_id, reach_status, error, changed))
+
+        # A failed poll carries no device_id, so the upsert COALESCEs the
+        # already-known one; the history row has to record that same device
+        # or the outage it represents becomes unattributable.
+        resolved_device_id = cur.fetchone()["device_id"]
 
         if changed:
             cur.execute(
                 """INSERT INTO device_reachability_change
                        (tenant_id, poll_target, device_id, reach_status, error)
                    VALUES (%s, %s, %s, %s::reach_status_kind, %s)""",
-                (tenant_id, poll_target, device_id, reach_status, error))
+                (tenant_id, poll_target, resolved_device_id, reach_status, error))
 
 
 def interface_ids(conn, device_id: str) -> dict[str, str]:
