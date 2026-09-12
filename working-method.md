@@ -85,10 +85,16 @@ Every step ends with a table of checks and their pass conditions.
 - A handoff that quotes its own HEAD is stale the moment it lands. The commit
   list records the state *before* the docs commit that carries it, and says so.
 - **`C:\ARK\NMS\mirror` on the MateBook is downstream and never canonical.**
-  Refresh it from the repo, and take the `sha256sum` on the OptiPlex before
-  writing any project doc from it. The project copy of `ROADMAP.md` ran 16
-  lines behind the repo for three days and nothing surfaced it — a hash
-  mismatch found it, by accident.
+  Refresh it with `git pull`. To confirm a file matches before writing a
+  project doc from it, compare **`git hash-object <file>` on both sides — not
+  `sha256sum`.** The mirror has `core.autocrlf=true`, so every text file
+  differs by line endings and a raw byte hash mismatches every time; a check
+  that always fails gets ignored, and then a real mismatch gets ignored with
+  it. `git hash-object` normalises to LF and compares content. Verified
+  2026-09-01: all three docs mismatched on `sha256sum` and matched exactly on
+  `git hash-object`. The project copy of `ROADMAP.md` once ran 16 lines behind
+  the repo for three days and nothing surfaced it — a hash mismatch found it,
+  by accident.
 - **Work authored off the machine reaches the repo by `scp` into `~/nms`,
   then a `sha256sum` match on both sides, then `git add`.** Never by paste,
   never by chat zip. A chat-authored file is legitimate only once its hash is
