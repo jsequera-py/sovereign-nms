@@ -4,3 +4,4 @@ __pycache__/
 .venv/
 inventory.generated.yaml
 inventory.generated.yaml
+.exit-test-running
