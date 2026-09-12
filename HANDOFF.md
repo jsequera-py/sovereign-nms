@@ -213,38 +213,135 @@ unexercised. Proving them means temporarily breaking the scorer, which is a
 change to a file under test, so it is a separate step. Each branch is three
 lines and exits immediately.
 
+### Session record — 2026-09-12
+
+The gate closed, the topology became visible, and a loose cable found a real
+defect. Five commits.
+
+- `0962f1e` — `working-method.md`: compare mirror files with `git hash-object`,
+  not `sha256sum`. The mirror has `core.autocrlf=true`, so a byte hash
+  mismatches on every text file and the check could never pass. It appears
+  never to have run. Verified the same day: all three docs mismatched on
+  `sha256sum` and matched exactly on `git hash-object`.
+- `3d3ec1b` — `Makefile`. `make check` is read-only and runs in 0.5s with a
+  warm sudo timestamp: identity, its selftest, a clean-tree assertion, unit
+  and host drift. `make check-scorer` is destructive and runs in 7–9s:
+  `reset_data.sh --yes`, `poll_cycle.sh`, `gate.py`. It calls `poll_cycle.sh`
+  rather than re-implementing the two polls. It refuses while
+  `.exit-test-running` exists — verified locked, refusing at the first block
+  with the device count unchanged. Default target is `help` and does nothing.
+  **`make` is not installed by default on Ubuntu 26.04**; 4.4.1-3 was installed
+  on the OptiPlex and belongs in the host-configuration list.
+- `0c9d5e3` — `web/topology.html`, mounted at `/ui` by the API. One file, no
+  CDN, so it works air-gapped. Mounted after all `/v1/*` routes.
+- `dd0e8b9` — viewer: port labels on hover, grouping by connected component.
+- `0938d11` — the reachability history row records the resolved device.
+
+**The gate is closed.** `gate.py` existed but nothing ran it with a reset,
+which is the false-pass path its own docstring warns about. `make check-scorer`
+now does reset → poll → grade → exit code. The 88.9% / 100% baseline is no
+longer a number in a document that someone has to remember to check.
+
+**What the graph showed that a percentage did not.** `acc-sw-03` renders as an
+isolated dot with no links, because its only two links are the scorer's only
+two misses. "88.9% recall" and "one device is entirely absent from the
+network" are the same fact, and the number had been hiding it for three weeks.
+The simulated fleet is also three components, not one — core (10), branch (3),
+and `acc-sw-03` alone — which is why the viewer's first grouping heuristic,
+"largest component is the simulated fleet", was false and was replaced with
+plain connected components. Nothing in `/v1/topology` distinguishes simulated
+from real, and `mgmt_ip` would only work on this desk.
+
+**The loose cable.** At 20:36 UTC the OptiPlex's ethernet came loose at the
+eero. The collector kept running for 2h07m: the simulated fleet polled 14/14
+throughout, `rb951g-lab` was recorded `unreachable` with the exact error
+(`snmpbulkwalk: Failure in sendto (Network is unreachable)`), one transition
+row rather than one per cycle, and the run still completed and reported. The
+two inventories are independent and a real-hardware failure did not contaminate
+the sim rig. A collector reported what it saw and concluded nothing — the
+non-negotiable, exercised by an actual fault rather than a designed test.
+
+**The defect it found.** `device_reachability_change` rows for transitions INTO
+unreachable were written with a null `device_id`. A failed poll carries no
+device_id; the state upsert compensated with COALESCE, the history insert
+passed the raw parameter. So the table could answer when a device came back and
+not when it went down — backwards for the incident timeline Phase 3 will read
+from it. Fixed with `RETURNING device_id` on the upsert. Verified by blocking
+udp/161 to the MikroTik and forcing the transition: the new row carries the
+device, the row from three minutes earlier does not.
+
+**`record_reachability` runs in the API process, not the collector.** It lives
+in `collector/store.py` but its only callers are in `server/ingest.py`. The
+first fix attempt looked like a failure for four minutes because
+`nms-api.service` still held the old module in memory. **The CLAUDE.md restart
+rule names `server/`, but the hazard is about what the service imports** — a
+file under `collector/` can need an API restart. The rule should be reworded.
+
+**Also worth knowing.**
+
+- `systemctl restart` returns before uvicorn binds. A curl issued immediately
+  after gets `000` and looks like a crash. Startup is under a second.
+- A reset writes a reachability transition for every device at once, so history
+  will show a mass event at each `check-scorer`. Not wrong, but it will look
+  like an outage in any future chart.
+- Two orphaned history rows from before the fix were left as they were, then
+  cleared by the next reset. Orphan count should stay at 0; if it grows, the
+  fix regressed.
+- The eero mesh does not forward LLDP, which is why `optiplex` and
+  `rb951g-lab` have never appeared as neighbours despite being two hops apart.
+- The OptiPlex is a single point of failure for the database, the API, the
+  collector and the UI, and it sits behind a consumer mesh on a segment the
+  MateBook reaches only by routing through the MikroTik.
+- **The gap between the fault at 20:36 and noticing it was an SSH timeout at
+  22:45.** The system knew immediately. Nothing told anyone. That is Phase 3,
+  demonstrated by accident on real hardware.
+
 ### Next session — in order
 
 **Step 1 of the previous plan is answered.** Both eero placeholders carry a
-`chassis_id` claim at confidence 0.8 (`8713a9be` → `0c:93:a5:24:86:e0`,
-`b2141ede` → `30:34:22:d7:1b:00`), and neither carries a `sysname` identity
+`chassis_id` claim at confidence 0.8 (`0c:93:a5:24:86:e0` and
+`30:34:22:d7:1b:00`; device UUIDs are not quoted because a reset regenerates
+them), and neither carries a `sysname` identity
 row, because `eero` is in `GENERIC_SYSNAMES` and the claim was never written.
 The redesign risk is retired: dropping `eero` from the denylist makes both
 assert `sysname = eero`, the second resolution merges onto the first, and the
 merged row then holds two chassis_ids — exactly the signature
 `check_identity.py` detects. **Old steps 2 and 3 collapse into one action.**
 
-1. **Build the Makefile** — `make check` (seconds, read-only: identity, tree
-   modes, unit drift) and `make check-scorer` (minutes, destructive:
-   `reset_data.sh --yes` → poll both inventories → `gate.py`). Default target
-   prints the list and does nothing. `check-scorer` aborts if
-   `.exit-test-running` exists. The accidental wipe on 2026-09-01 proved a
-   prompt is not an interlock: it fired correctly and the database still went.
-2. Drop `eero` from `GENERIC_SYSNAMES`, reset, re-poll. **`check_identity.py`
+1. Drop `eero` from `GENERIC_SYSNAMES`, reset, re-poll. **`check_identity.py`
    must report a violation.** That edit is temporary and must never be
    committed: `git checkout -- collector/store.py` and a clean `git status`
-   before moving on.
-3. Implement the unmatched-identifier veto in `resolve_device()`. Reset,
+   before moving on. Note `record_reachability` lives in the same file and
+   runs in the API process — `sudo systemctl restart nms-api.service` after
+   any edit here, or the running service keeps the old module.
+2. Implement the unmatched-identifier veto in `resolve_device()`. Reset,
    re-poll with `eero` still absent from the denylist. The check must come
    back clean — proving the veto did the work, not the denylist.
-4. Restore `eero`, reset, re-poll, `make check-scorer` green.
-5. **Phase 2.0 — direction ground truth.** `ROADMAP.md` orders 2.1 (inference)
+3. Restore `eero`, then `make check-scorer`. Green is the gate now; no
+   separate reset or scorer invocation needed.
+4. **Phase 2.0 — direction ground truth.** `ROADMAP.md` orders 2.1 (inference)
    before 2.2 (the scorer that grades it), which inverts the discipline that
    produced every honest number here. Add upstream/downstream labels to
    `sim/topology.yaml`, extend the scorer to read them, and confirm it reports
    0% direction accuracy against an empty `dependency` table. A scorer that
-   can fail before anything exists to grade is one worth trusting.
-6. Then 2.1 inference, then 2.3 threshold calibration.
+   can fail before anything exists to grade is one worth trusting. Extend
+   `gate.py` with the direction condition once it produces a number.
+5. Then 2.1 inference, then 2.3 threshold calibration.
+
+**Smaller items, any time.**
+
+- **Reword the CLAUDE.md restart rule.** It names `server/`, but the hazard is
+  what `nms-api.service` imports. `collector/store.py` needed an API restart
+  and the rule did not say so.
+- `make check` ordering: the clean-tree assertion runs third, after both
+  identity checks. On a dirty tree it wastes them. Cheap to move first.
+- Record `make` (4.4.1-3) in the host-configuration section — a rebuilt host
+  gets a Makefile it cannot run.
+- `/ui/` 404s: `html=True` wants `index.html` and the file is `topology.html`.
+  Decide whether topology is the UI's front door before renaming.
+- The viewer prompts for the collector bearer token. Replace it when the read
+  credential in `interface-design` question 4 exists, and rotate that token —
+  it was pasted into a chat transcript on 2026-09-12.
 
 **Sizing note for the veto.** The simulated switches carry 24–26 `base_mac`
 identity rows each. If `base_mac` resolves, every device offers ~25
