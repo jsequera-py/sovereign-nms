@@ -362,6 +362,46 @@ verified only by artificially ageing one link's evidence; this is the
 first time a real device left and the read path took the last-known number
 straight from `link.confidence`. The old code would have written `0.00`.
 
+**The silent merge reproduced on hardware, and the detector missed it.**
+The Pi's hostname was set to `optiplex`, the database reset, and both
+inventories polled. Result: 19 devices, not 20. No Pi device row. The Pi
+was absorbed into the polled `optiplex` device, and a link
+`optiplex <-> rb951g-lab` was created at device fidelity, confidence 0.65
+— a link that cannot physically exist, and whose absence this file cites
+as the proof that the eero mesh does not forward LLDP.
+
+**The failure mode is worse than `identity-design.md` describes.** The
+merged row does **not** end up holding two chassis_ids. `optiplex` kept
+exactly one, `e4:b9:7a:ec:01:95`. A query for `dc:a6:32:ee:99:a9` across
+`device_identity` returned zero rows: the unmatched chassis claim was
+discarded, not stored. `check_identity.py` therefore reported
+`VIOLATIONS: 0` on a database containing a live silent merge, and printed
+its own caveat while doing so: "does NOT rule out a sysname-only merge".
+**The detector built for this bug does not detect this instance of it.**
+
+**The evidence row kept what identity threw away.** The phantom link's
+only evidence reads
+`{"peer_if": "eth0", "peer_chassis": "dc:a6:32:ee:99:a9",
+"peer_sysname": "optiplex"}`, reporter `rb951g-lab`. The collector saw an
+unknown chassis and a known sysName in the same claim, resolved on the
+sysName, and dropped the chassis. **That gives a detector fix available
+today, independent of the veto:** cross-check
+`link_evidence.raw_claim -> peer_chassis` against `device_identity`; a
+peer chassis present in evidence and belonging to no device is exactly
+this bug. Read-only, no schema change.
+
+**The scorer was blind to all of it.** It reported `FALSE LINKS: 0` and
+`PRECISION: 100.0%` with the fabricated link live in the database,
+because it grades only `sim/topology.yaml`. See open question 19.
+
+Restored afterwards: hostname back to `retropie`, reset, re-poll, 20
+devices, phantom gone, `nms-collector.timer` restarted. The timer was
+stopped from 01:55 to 02:16 UTC for the duration of the test.
+
+**Method note.** This test required no code edit. It is strictly safer
+than the `GENERIC_SYSNAMES` route and does not risk committing a
+temporary change to `collector/store.py`.
+
 ### Next session — in order
 
 **Step 1 of the previous plan is answered.** Both eero placeholders carry a
@@ -369,22 +409,33 @@ straight from `link.confidence`. The old code would have written `0.00`.
 `30:34:22:d7:1b:00`; device UUIDs are not quoted because a reset regenerates
 them), and neither carries a `sysname` identity
 row, because `eero` is in `GENERIC_SYSNAMES` and the claim was never written.
-The redesign risk is retired: dropping `eero` from the denylist makes both
-assert `sysname = eero`, the second resolution merges onto the first, and the
-merged row then holds two chassis_ids — exactly the signature
-`check_identity.py` detects. **Old steps 2 and 3 collapse into one action.**
 
-1. Drop `eero` from `GENERIC_SYSNAMES`, reset, re-poll. **`check_identity.py`
-   must report a violation.** That edit is temporary and must never be
-   committed: `git checkout -- collector/store.py` and a clean `git status`
-   before moving on. Note `record_reachability` lives in the same file and
-   runs in the API process — `sudo systemctl restart nms-api.service` after
-   any edit here, or the running service keeps the old module.
-2. Implement the unmatched-identifier veto in `resolve_device()`. Reset,
-   re-poll with `eero` still absent from the denylist. The check must come
-   back clean — proving the veto did the work, not the denylist.
-3. Restore `eero`, then `make check-scorer`. Green is the gate now; no
-   separate reset or scorer invocation needed.
+**The prediction that followed it was measured false on 2026-09-13.** It said
+dropping `eero` from the denylist would produce a merged row holding two
+chassis_ids, "exactly the signature `check_identity.py` detects". It does
+not. The merge discards the unmatched chassis claim rather than storing it,
+so the merged row holds one, and `check_identity.py` reports `VIOLATIONS: 0`
+against a live merge. Reproduced with the Raspberry Pi and no code edit; see
+the 2026-09-13 session record.
+
+1. **Superseded 2026-09-13 — do not drop `eero` from `GENERIC_SYSNAMES`.**
+   The merge reproduces with no code edit at all: set the Raspberry Pi's
+   hostname to `optiplex`, reset, re-poll. Measured result was 19 devices,
+   no Pi row, and a phantom `optiplex <-> rb951g-lab` link at 0.65, with
+   `check_identity.py` reporting clean. Fix the detector before or alongside
+   the veto: cross-check `link_evidence.raw_claim -> peer_chassis` against
+   `device_identity`. A peer chassis present in evidence and belonging to no
+   device is exactly this bug. Read-only, no schema change.
+2. Implement the unmatched-identifier veto in `resolve_device()`. Verify with
+   the Pi hostname method rather than the denylist: set the Pi to `optiplex`,
+   reset, re-poll. **The Pi must now get its own device row — 20 devices, and
+   no `optiplex <-> rb951g-lab` link.** Restore the hostname afterwards. Note
+   `record_reachability` lives in the same file and runs in the API process —
+   `sudo systemctl restart nms-api.service` after any edit to
+   `collector/store.py`, or the running service keeps the old module.
+3. `make check-scorer`. Green is the gate now; no separate reset or scorer
+   invocation needed. Confirm the Pi's hostname is back to `retropie` first,
+   or the check runs against a deliberately corrupted identity.
 4. **Phase 2.0 — direction ground truth.** `ROADMAP.md` orders 2.1 (inference)
    before 2.2 (the scorer that grades it), which inverts the discipline that
    produced every honest number here. Add upstream/downstream labels to
@@ -1347,6 +1398,24 @@ start is attempted.
     Either 5.4 is demonstrated on the simulated fleet, or the lab needs one
     switch that reports its local port correctly. The FortiSwitch in open
     question 4 is the candidate.
+
+19. **`PRECISION: 100.0%` is a simulated-fleet number and cannot see a
+    false link on real hardware.** Measured 2026-09-13: a fabricated
+    `optiplex <-> rb951g-lab` link sat in `link` while the scorer reported
+    `FALSE LINKS: 0`. `discovered (in scope)` filters to devices present in
+    `sim/topology.yaml`, so every real-hardware link is outside the graded
+    set in both directions. The figure is honest about what it measures and
+    this file quotes it without that qualifier. Either state the scope
+    wherever the number appears, or add a second assertion over
+    real-hardware links with its own ground truth. Relevant to `gate.py`,
+    which enforces the number as an exit code.
+
+20. **`check_identity.py` cannot detect a sysname-only merge.** It looks for
+    two hard identities on one device, a signature this merge never produces
+    because the unmatched chassis claim is discarded before it is written.
+    Proven 2026-09-13 against a live merge. The script's own output already
+    says so. The data to close it is already stored in
+    `link_evidence.raw_claim`.
 
 ---
 
