@@ -488,7 +488,7 @@ identified by stored chassis, as a link to the device holding
 `dc:a6:32:ee:99:a9`, must be *present*. A veto that deleted the adjacency
 outright would satisfy "no phantom" while destroying real topology.
 
-**Three findings recorded, one fixed since.**
+**Three findings recorded, all three fixed the same day.**
 
 1. **The neighbour path never records what it observed when it resolves to an
    existing device.** `resolve_device()`'s comment, "Attach every claim,
@@ -496,8 +496,28 @@ outright would satisfy "no phantom" while destroying real topology.
    graph self-corrects", has no equivalent in `resolve_peer_device()`.
    Identifiers are written only on the placeholder-creation path. The veto
    does not depend on this; the graph's self-correction for neighbours does.
+   **Fixed 2026-09-13, `c2d8e56`.** The hit path now re-asserts what the
+   neighbour advertised, narrowly: it refreshes an identifier the device
+   already holds and adds a `sysname` only when it holds none, never a
+   `chassis_id` or `serial` the device does not carry. The conflict key is
+   `(tenant, id_type, id_value, source)`, so a different value is a new row
+   rather than an overwrite: writing an observed chassis onto a device that
+   stores a different one would give it two `chassis_id` values, which is
+   what check A reports as a violation. It would also hand a polled device
+   a hearsay identity and make it veto-eligible on a neighbour's assertion,
+   so `br-rtr-02` stays in check B's blind spot on purpose. Measured
+   before: five placeholder identity rows frozen 14.6 hours against a live
+   clock, and a poll moved none. After: all five advanced to within 0.16 s
+   of `now()`.
 2. **`resolve_peer_device()` has no multi-match warning.** First hit wins,
    silently. `resolve_device()` at least logs "Manual merge required".
+   **Fixed 2026-09-13, `c2d8e56`.** The loop evaluates every candidate and
+   picks the strongest afterwards, because a loop that stops at the first
+   hit cannot see a second device. **The warning has never been observed
+   firing.** No peer in this fleet is seen with two chassis values and no
+   observed sysname points at two devices, so there is nothing here to
+   trigger it. Treat it as unexercised until the sim rig can express a
+   shared sysName, which is already an open item.
 3. **`make check-scorer` does not stop `nms-collector.timer` before
    resetting.** It calls `reset_data.sh --yes` directly, so a collector cycle
    can fire mid-reset. Same hole that produced the accidental wipe on
