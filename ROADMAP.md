@@ -323,6 +323,30 @@ debug a customer problem, and redaction cannot be retrofitted.
 TLS, credential rotation, backup/restore, retention policy on evidence
 and metrics.
 
+### 6.5 Device adoption
+
+`inventory.yaml` is seed data, not the interface. Replace it with a
+`poll_target` table carrying `candidate`, `adopted`, `declined`,
+`unreachable`.
+
+Adoption model:
+
+- A human approves a **scope** once (address range plus credential set).
+  Never a device, one at a time. Auvik approves networks, not devices, and
+  a per-device queue on 500 devices is abandoned in week two. That is the
+  alert-spam failure this product exists to cure.
+- Candidates are classified by **link degree first**, LLDP capabilities
+  second. Degree is our own observation. Capabilities are the device's
+  claim about itself, and they are unreliable (see HANDOFF, Vendor
+  realities).
+- Infrastructure inside an approved scope is adopted with no human.
+- Everything else is drawn as a topology leaf and never polled.
+- Declines are durable across rediscovery, with a recorded reason. Without
+  that the queue regenerates every cycle and gets ignored.
+
+Blocked on the identity veto. Auto-adopting a device that silently merges
+is worse than not adopting it.
+
 ---
 
 ## Critical path to a demo

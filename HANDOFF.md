@@ -296,6 +296,64 @@ file under `collector/` can need an API restart. The rule should be reworded.
   22:45.** The system knew immediately. Nothing told anyone. That is Phase 3,
   demonstrated by accident on real hardware.
 
+### Session record — 2026-09-13
+
+An experiment, not a build. A Raspberry Pi 4 was connected to the lab to
+observe what discovery does with an unknown device. Run as a negative
+control first, then a positive test, with pass conditions written before
+each command.
+
+**The device.** Raspberry Pi 4, `DC:A6:32:EE:99:A9`, RetroPie on Raspbian
+10 buster, hostname `retropie`, MikroTik bridge port 4, DHCP lease
+`192.168.88.253`.
+
+**Negative control: a bare unmanaged device is invisible, correctly.**
+With no `lldpd` and no `snmpd`, the Pi was learned in the MikroTik FDB
+(`dot1qTpFdbPort` port 4, `dot1dTpFdbStatus` 3) and held a DHCP lease.
+Across 8 poll cycles the NMS produced zero rows referencing it: 19 devices,
+19 links, nothing new since T0, no `device_identity` row in any encoding.
+The stimulus was proven delivered before the null result was accepted.
+
+**Why, and the general rule it establishes.** `find_leaf_ports` qualifies a
+port only when its single learned MAC maps to an existing device
+(`collector/fdb.py:158`). An unknown MAC has no owner, so no link, and
+`mac_table` never creates devices. **`mac_table` cannot discover anything;
+it can only corroborate what LLDP already found.** The 88.9% recall is
+entirely LLDP-driven, and the two misses are both non-LLDP links that no
+volume of FDB data reaches under this rule. Confirmed from the opposite
+direction on hardware.
+
+**FDB self-filtering verified on hardware.** `fdb.py` reads `FDB_STATUS`
+and `learned()` excludes self(4) and mgmt(5). The walk agrees: dock and Pi
+both `3`, both `E4:8D:8C` Routerboard addresses `4`. The strictness that
+buys 100% precision is earned, not accidental.
+
+**Positive test.** `lldpd 1.0.3-1+deb10u2` installed on the Pi, nothing
+else. Result at the next cycle, every prediction met: one device
+`display_name = retropie`, vendor NULL, state `unpolled`; one link
+`rb951g-lab <-> retropie`, **device** fidelity, confidence **0.80** from
+`lldp` 0.65 plus one independent `mac_table` confirmation; 20 devices, 20
+links. **Scorer unchanged at 88.9% / 100%, 16/16 port pairs, 0 false
+links** — real hardware outside `sim/topology.yaml` did not move the
+simulated answer key.
+
+Named `retropie` rather than by MAC because `retropie` is not in
+`GENERIC_SYSNAMES`, so the sysName claim survived the filter. It resolves
+on two identifiers where the eeros resolve on one.
+
+**Device fidelity here is a vendor limit, not a design limit.** The
+evidence row reads `"peer_if": "eth0", "reporter_if": null`. The Pi's port
+is known; the MikroTik cannot name its own because
+`lldpRemLocalPortNum = 0`. This link is one vendor behaviour away from
+interface fidelity.
+
+**Decision taken.** Device adoption is scope-approved, not device-approved.
+Recorded in ROADMAP 6.5 and in Architectural decisions.
+
+**Environment note.** `raspbian.raspberrypi.org` no longer serves a buster
+Release file; the archive moved to `legacy.raspbian.org`. Any buster-era
+Pi in this lab needs its `sources.list` repointed before `apt` works.
+
 ### Next session — in order
 
 **Step 1 of the previous plan is answered.** Both eero placeholders carry a
@@ -846,6 +904,13 @@ second poll does not change that.
 **The LLM decides nothing.** Discovery, direction and suppression stay
 deterministic and auditable. 8B plus grounding; the 70B requirement is cut.
 
+**Adoption**
+- **Adoption is governed by scope, never by sighting.** A device outside an
+  approved scope is never probed, whatever the topology says about it.
+  Discovery draws it; only policy adopts it.
+- Link degree is the primary classifier; LLDP capabilities corroborate.
+  Same precedence as `mgmt_ip`: recorded, corroborating, never deciding.
+
 ---
 
 ## Vendor realities discovered on actual hardware
@@ -884,6 +949,35 @@ string we are already receiving, not access to the eero.
 **A correctly-configured firewall makes a device look dead.** SNMP to the
 MikroTik timed out identically to a powered-off switch. The collector records
 the difference now and it is persisted, but nothing acts on it yet.
+
+**LLDP capability bits are wrong in both directions on real hardware.**
+Measured 2026-09-13. The MateBook dock reports `lldpRemSysCapSupported`
+and `lldpRemSysCapEnabled` both `00`, advertising no capabilities at all.
+The Raspberry Pi reports `Wlan, on` because `wlan0` exists on the board,
+though it is administratively DOWN and carries no traffic. A rule of
+"Bridge or Router or WLAN means infrastructure" would adopt a RetroPie
+game console. Two real samples, wrong in opposite directions. This is why
+adoption classifies on link degree first.
+
+**RouterOS 6.49 floods LLDP across bridge ports.** Measured 2026-09-13. A
+Raspberry Pi on bridge port 4 running `lldpd` reported exactly one
+neighbour: `MATEBOOK-D14`, chassis subtype local, PortID
+`mac 64:c9:01:a9:42:7e`. The dock sits on bridge port 1, confirmed from
+`dot1qTpFdbPort`. The frame crossed the bridge. An 802.1D-compliant bridge
+consumes `01:80:c2:00:00:0e` rather than forwarding it.
+
+Consequence: **on this hardware LLDP means same broadcast domain, not
+physical adjacency.** That is the assumption the entire evidence model
+rests on, and `lldp` carries the highest automatic base at 0.65, so a
+phantom link from this path arrives at high confidence and no amount of
+FDB strictness catches it. It does not bite today only because the Pi is
+not in `inventory.yaml` and nobody asks it what it sees. The first polled
+Linux host on that bridge will report a neighbour it is not connected to.
+
+Also measured: the MikroTik transmits no LLDP on its bridge ports. 4
+frames received by the Pi in 96 seconds with one neighbour inserted is one
+sender at the standard 30-second interval. It receives and reports, which
+is all the collector needs, but it is invisible to anything downstream.
 
 ---
 
@@ -1209,6 +1303,31 @@ start is attempted.
     that is an argument from reading, not a measurement. Cheap to settle:
     point `SCORER_CMD` at a stub that exits 1, then at one printing nothing,
     then at one printing `{}`.
+
+15. **LLDP flooding invalidates the adjacency assumption on RouterOS
+    bridges.** See Vendor realities. Decide before any second Linux host on
+    that bridge enters `inventory.yaml`. Candidate mitigations: require
+    two-sided LLDP before a link is created at full `lldp` confidence, or
+    cross-check every LLDP claim against the FDB port and reject a claim
+    whose peer is not on the reporting port. The second is stronger and the
+    data to do it is already collected.
+
+16. **`fdb.py` `learned()` returns True when `status is None`** (line 61).
+    A switch that does not serve `dot1dTpFdbStatus` gets its self and mgmt
+    addresses counted as learned. That is fail-open on the exact column
+    protecting precision, against a stated non-negotiable. Cannot fire on
+    RouterOS, which serves the column; it is a scenario-2 multi-vendor
+    problem. Proposed fix: when status is unavailable, exclude MACs
+    matching the reporting device's own `ifPhysAddress` values, which the
+    collector already reads. Preserves the table instead of discarding it
+    and does not require the vendor to be honest.
+
+17. **`mgmt_ip` is not captured for LLDP-discovered placeholders.** The Pi
+    advertises `MgmtIP 192.168.88.253` in its LLDPDU, and `device.mgmt_ip`
+    for `retropie` is NULL. Either `lldpRemManAddr` is not served for it or
+    the collector does not read it on the placeholder path. Matters
+    directly for ROADMAP 6.5: a management address is what makes a
+    candidate pollable without a human typing one.
 
 ---
 
