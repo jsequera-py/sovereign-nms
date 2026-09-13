@@ -1,14 +1,26 @@
 # Sovereign NMS — Session Handoff
 
-Paste this into a new chat, along with `ROADMAP.md`, to resume.
+**To resume: run `make state` on the OptiPlex and paste its output into the
+new session.** That output is the only state any session may trust. It is
+generated at the moment you ask it, so it cannot be stale.
 
-Last updated 2026-08-26. State below was verified on the machine, not assumed.
+This file is the *reasoning* behind that state: decisions, vendor realities,
+measured findings, open questions. Read it for **why**. Do not read it for
+**what is true right now** — the narrative here is allowed to lag, and the
+claude.ai project copy is a mirror that lags further still. `ROADMAP.md` is
+the same: neither file is a state source.
+
+Every claim below was verified on the machine when it was written, and is
+dated. A dated claim is history, not current state.
 
 ---
 
 ## START HERE
 
 ### Verified state (2026-08-26)
+
+*Historical snapshot, superseded by `make state`. Kept because the reasoning
+below it is still load-bearing; the commit list and counts are not.*
 
 Most recent commits at the time of writing. The docs commit that carries this
 file sits on top of them, so HEAD is one ahead of this list by design — do not
