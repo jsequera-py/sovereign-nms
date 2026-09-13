@@ -354,6 +354,14 @@ Recorded in ROADMAP 6.5 and in Architectural decisions.
 Release file; the archive moved to `legacy.raspbian.org`. Any buster-era
 Pi in this lab needs its `sources.list` repointed before `apt` works.
 
+**Decay verified on hardware that actually left.** The Pi was unplugged at
+2026-09-13 00:52 UTC. After the evidence aged past the 30-minute freshness
+window the rollup marked the link `stale` with **confidence intact at
+0.80**, link states 19 active / 1 stale. `5c7b3fa` had previously been
+verified only by artificially ageing one link's evidence; this is the
+first time a real device left and the read path took the last-known number
+straight from `link.confidence`. The old code would have written `0.00`.
+
 ### Next session — in order
 
 **Step 1 of the previous plan is answered.** Both eero placeholders carry a
@@ -1328,6 +1336,17 @@ start is attempted.
     the collector does not read it on the placeholder path. Matters
     directly for ROADMAP 6.5: a management address is what makes a
     candidate pollable without a human typing one.
+
+18. **ROADMAP 5.4 is unfilmable on this lab.** The move-a-cable-and-watch-
+    it-correct demo needs an interface-fidelity link on real hardware.
+    RouterOS 6.49 returns `lldpRemLocalPortNum = 0`, so every MikroTik link
+    is device fidelity with both endpoints NULL and no port for the graph
+    to correct: moving the MateBook dock from bridge port 1 to port 3
+    leaves the link row byte-identical. Only the OptiPlex can name its own
+    ports, and its one relevant port goes to an eero that cannot be moved.
+    Either 5.4 is demonstrated on the simulated fleet, or the lab needs one
+    switch that reports its local port correctly. The FortiSwitch in open
+    question 4 is the candidate.
 
 ---
 
