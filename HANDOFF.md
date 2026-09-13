@@ -488,7 +488,7 @@ identified by stored chassis, as a link to the device holding
 `dc:a6:32:ee:99:a9`, must be *present*. A veto that deleted the adjacency
 outright would satisfy "no phantom" while destroying real topology.
 
-**Three findings recorded, none fixed.**
+**Three findings recorded, one fixed since.**
 
 1. **The neighbour path never records what it observed when it resolves to an
    existing device.** `resolve_device()`'s comment, "Attach every claim,
@@ -502,7 +502,14 @@ outright would satisfy "no phantom" while destroying real topology.
    resetting.** It calls `reset_data.sh --yes` directly, so a collector cycle
    can fire mid-reset. Same hole that produced the accidental wipe on
    2026-09-01. An interactive prompt was never the interlock, and `--yes`
-   removes even that. Stop the timer by hand until the target does it.
+   removes even that.
+   **Fixed 2026-09-13, `6a822a2`.** The target now calls
+   `scripts/check_scorer.sh`, which stops the timer for the destructive
+   window and restores it from a trap, capturing the prior state rather
+   than assuming it, so a 24-hour exit test that stopped the timer keeps it
+   stopped. Verified on all four paths, including a forced failure with
+   `inventory.yaml` hidden: the poll raised, the script exited 1, and the
+   timer came back.
 
 **`claude/identity-design.md` does not exist on the OptiPlex.** It is present
 only in the claude.ai project copy, which this file outranks. Code is the rank
