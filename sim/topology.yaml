@@ -9,6 +9,12 @@
 # bidirectional LLDP proves nothing — real networks are not like that.
 # ============================================================
 
+# Where the collector sits. srv-mon-01 is the monitoring host, attached to
+# acc-sw-01. Suppression is judged from this vantage point: a device is
+# collateral only if the outage removed the vantage's path to it. Metadata,
+# not a link — truth_links stays 18 and gate.py is unaffected.
+collector_vantage: srv-mon-01
+
 profiles:
   fortigate:
     sys_descr: "FortiGate-60F v7.4.4,build2662,240514 (GA)"
@@ -155,12 +161,16 @@ links:
 # Expected discovery difficulty, stated up front so the scorer has
 # something to compare against and you cannot move the goalposts later.
 #
-#   17 links total
-#   11 with bidirectional LLDP   -> should be found trivially
+#   18 links total
+#   12 with bidirectional LLDP   -> should be found trivially
 #    1 with one-sided LLDP       -> should be found, lower confidence
 #    5 with no LLDP at all       -> require MAC/ARP inference or are missed
 #
-# A first implementation that finds 12/17 is honest progress.
-# Anything reporting 17/17 on the first run means the generator and the
-# parser agree with each other, not that discovery works.
+# The counts above said 17/11 until 2026-09-13. The file has held 18 links
+# since before that; the scorer and gate.py both use 18, so only the comment
+# was wrong.
+#
+# Measured baseline is 16/18 — 88.9% recall at 100% precision — and both
+# misses are named in the scorer output. Anything reporting 18/18 means the
+# generator and the parser agree with each other, not that discovery works.
 # ------------------------------------------------------------

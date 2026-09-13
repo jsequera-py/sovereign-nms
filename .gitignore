@@ -5,3 +5,4 @@ __pycache__/
 inventory.generated.yaml
 inventory.generated.yaml
 .exit-test-running
+sim/outage.expected.json
