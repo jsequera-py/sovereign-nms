@@ -81,6 +81,7 @@ def resolve_peer_device(conn, tenant_id: str, obs: NeighborObservation) -> tuple
         return None, False
 
     with conn.cursor() as cur:
+        missed_chassis = False
         for id_type, id_value in candidates:
             cur.execute(
                 """SELECT device_id FROM device_identity
@@ -89,7 +90,38 @@ def resolve_peer_device(conn, tenant_id: str, obs: NeighborObservation) -> tuple
                 (tenant_id, id_type, id_value))
             row = cur.fetchone()
             if row:
-                return str(row["device_id"]), False
+                hit_id = str(row["device_id"])
+                # Unmatched-identifier veto. A chassis MAC was observed on
+                # this neighbour and matched nothing, yet its sysName hit a
+                # device we already know.
+                #
+                # The discriminator is whether that matched device stores a
+                # chassis of its own. If it does, it is asserting a chassis
+                # different from the one observed here, so this is new
+                # hardware wearing a name we already know. If it stores
+                # none, it is a vendor that never advertises one (RouterOS
+                # omits lldpLocChassisId) and there is nothing to
+                # contradict. Same discriminator check B uses in
+                # check_identity.py.
+                #
+                # Restricted to a sysname hit on purpose. A base_mac hit is
+                # the port-MAC-as-chassis case that candidate exists for;
+                # vetoing it would break what it was added to handle.
+                if missed_chassis and id_type == "sysname":
+                    cur.execute(
+                        """SELECT 1 FROM device_identity
+                            WHERE tenant_id = %s AND device_id = %s
+                              AND id_type = 'chassis_id' LIMIT 1""",
+                        (tenant_id, hit_id))
+                    if cur.fetchone():
+                        log.info("%s: sysname=%s hit %s, which stores a "
+                                 "different chassis - new hardware",
+                                 obs.peer_sysname or "peer", id_value,
+                                 hit_id[:8])
+                        break
+                return hit_id, False
+            if id_type == "chassis_id":
+                missed_chassis = True
 
         # Never seen directly. Create a placeholder so the adjacency can
         # be recorded at all — an eero mesh AP advertises LLDP and
