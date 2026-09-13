@@ -19,7 +19,9 @@ help:
 	@echo "                host-setup.sh --check (both need sudo). Seconds."
 	@echo "  check-scorer  DESTRUCTIVE. Resets the database, runs one poll cycle,"
 	@echo "                then grades it with gate.py. Refuses while $(LOCK)"
-	@echo "                exists."
+	@echo "                exists. Stops nms-collector.timer for the"
+	@echo "                destructive window and restores it, so it"
+	@echo "                needs sudo."
 	@echo "  state         Read-only, no sudo. Current machine state for pasting"
 	@echo "                into a new session. Seconds."
 	@echo "  lock          Create $(LOCK), blocking check-scorer for a 24-hour"
@@ -40,13 +42,7 @@ check:
 	sudo ./deploy/host-setup.sh --check
 
 check-scorer:
-	@if [ -e $(LOCK) ]; then \
-		echo "check-scorer: refusing to run — $(LOCK) exists, a 24-hour exit test is in progress."; \
-		exit 1; \
-	fi
-	./scripts/reset_data.sh --yes
-	./scripts/poll_cycle.sh
-	$(PY) scripts/gate.py
+	./scripts/check_scorer.sh
 
 state:
 	@echo "===== SOVEREIGN NMS — STATE $$(date -u '+%Y-%m-%d %H:%M:%S UTC') ====="
