@@ -57,6 +57,52 @@ class NeighborObservation:
     source: str = "lldp"
 
 
+def _reassert_peer_identity(cur, tenant_id: str, device_id: str,
+                            candidates) -> None:
+    """
+    Re-assert, on the hit path, what the neighbour advertised. Conservatively.
+
+    Refreshes an identifier this device already holds, and adds a `sysname`
+    only when it holds none. It never adds a `chassis_id` or `serial` the
+    device does not already carry: those are unique per box, a second value
+    on one row is exactly what check A reports as a violation, and a chassis
+    a device declines to advertise is the neighbour's assertion, not the
+    device's own. `base_mac` is skipped for the same reason the creation
+    path skips it - it is a guess, not an identity.
+
+    The conflict clause refreshes only a row that already belongs to this
+    device. A row owned by another device is left alone rather than stolen.
+    """
+    for id_type, id_value in candidates:
+        if id_type == "base_mac":
+            continue
+
+        cur.execute(
+            """SELECT 1 FROM device_identity
+                WHERE tenant_id = %s AND device_id = %s
+                  AND id_type = %s AND id_value = %s LIMIT 1""",
+            (tenant_id, device_id, id_type, id_value))
+        if cur.fetchone() is None:
+            if id_type != "sysname":
+                continue
+            cur.execute(
+                """SELECT 1 FROM device_identity
+                    WHERE tenant_id = %s AND device_id = %s
+                      AND id_type = 'sysname' LIMIT 1""",
+                (tenant_id, device_id))
+            if cur.fetchone():
+                continue
+
+        cur.execute(
+            """INSERT INTO device_identity
+                   (tenant_id, device_id, id_type, id_value, source, confidence)
+               VALUES (%s, %s, %s, %s, 'lldp'::source_kind, 0.8)
+               ON CONFLICT (tenant_id, id_type, id_value, source)
+               DO UPDATE SET last_seen = now()
+                       WHERE device_identity.device_id = EXCLUDED.device_id""",
+            (tenant_id, device_id, id_type, id_value))
+
+
 def resolve_peer_device(conn, tenant_id: str, obs: NeighborObservation) -> tuple[str | None, bool]:
     """
     Find (or create) the device this neighbour refers to.
@@ -81,6 +127,11 @@ def resolve_peer_device(conn, tenant_id: str, obs: NeighborObservation) -> tuple
         return None, False
 
     with conn.cursor() as cur:
+        # Every candidate is evaluated, not just up to the first hit. Two
+        # things need that: the multi-match warning below, which cannot see
+        # a second device if the loop stops, and the veto, which needs to
+        # know a chassis was observed and missed.
+        matched: list[tuple[str, str]] = []
         missed_chassis = False
         for id_type, id_value in candidates:
             cur.execute(
@@ -90,38 +141,53 @@ def resolve_peer_device(conn, tenant_id: str, obs: NeighborObservation) -> tuple
                 (tenant_id, id_type, id_value))
             row = cur.fetchone()
             if row:
-                hit_id = str(row["device_id"])
-                # Unmatched-identifier veto. A chassis MAC was observed on
-                # this neighbour and matched nothing, yet its sysName hit a
-                # device we already know.
-                #
-                # The discriminator is whether that matched device stores a
-                # chassis of its own. If it does, it is asserting a chassis
-                # different from the one observed here, so this is new
-                # hardware wearing a name we already know. If it stores
-                # none, it is a vendor that never advertises one (RouterOS
-                # omits lldpLocChassisId) and there is nothing to
-                # contradict. Same discriminator check B uses in
-                # check_identity.py.
-                #
-                # Restricted to a sysname hit on purpose. A base_mac hit is
-                # the port-MAC-as-chassis case that candidate exists for;
-                # vetoing it would break what it was added to handle.
-                if missed_chassis and id_type == "sysname":
-                    cur.execute(
-                        """SELECT 1 FROM device_identity
-                            WHERE tenant_id = %s AND device_id = %s
-                              AND id_type = 'chassis_id' LIMIT 1""",
-                        (tenant_id, hit_id))
-                    if cur.fetchone():
-                        log.info("%s: sysname=%s hit %s, which stores a "
-                                 "different chassis - new hardware",
-                                 obs.peer_sysname or "peer", id_value,
-                                 hit_id[:8])
-                        break
-                return hit_id, False
-            if id_type == "chassis_id":
+                matched.append((id_type, str(row["device_id"])))
+            elif id_type == "chassis_id":
                 missed_chassis = True
+
+        distinct = {d for _, d in matched}
+        if len(distinct) > 1:
+            # resolve_device() logs this and refuses to auto-merge. This
+            # path used to take the first hit silently.
+            log.warning(
+                "%s: neighbour claims match %d devices %s - using strongest "
+                "(%s). Manual merge required.",
+                obs.peer_sysname or obs.peer_chassis_mac or "peer",
+                len(distinct), sorted(d[:8] for d in distinct), matched[0][0])
+
+        if matched:
+            hit_type, hit_id = matched[0]
+            vetoed = False
+            # Unmatched-identifier veto. A chassis MAC was observed on this
+            # neighbour and matched nothing, yet its sysName hit a device we
+            # already know.
+            #
+            # The discriminator is whether that matched device stores a
+            # chassis of its own. If it does, it is asserting a chassis
+            # different from the one observed here, so this is new hardware
+            # wearing a name we already know. If it stores none, it is a
+            # vendor that never advertises one (RouterOS omits
+            # lldpLocChassisId) and there is nothing to contradict. Same
+            # discriminator check B uses in check_identity.py.
+            #
+            # Restricted to a sysname hit on purpose. A base_mac hit is the
+            # port-MAC-as-chassis case that candidate exists for; vetoing it
+            # would break what it was added to handle.
+            if missed_chassis and hit_type == "sysname":
+                cur.execute(
+                    """SELECT 1 FROM device_identity
+                        WHERE tenant_id = %s AND device_id = %s
+                          AND id_type = 'chassis_id' LIMIT 1""",
+                    (tenant_id, hit_id))
+                if cur.fetchone():
+                    vetoed = True
+                    log.info("%s: sysname hit %s, which stores a different "
+                             "chassis - new hardware",
+                             obs.peer_sysname or "peer", hit_id[:8])
+
+            if not vetoed:
+                _reassert_peer_identity(cur, tenant_id, hit_id, candidates)
+                return hit_id, False
 
         # Never seen directly. Create a placeholder so the adjacency can
         # be recorded at all — an eero mesh AP advertises LLDP and
