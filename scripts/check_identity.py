@@ -7,27 +7,38 @@ fires at all, and the claim-attachment loop then writes EVERY claim from the
 absorbed device onto the absorbing one. What is left behind is a device row
 carrying two distinct values for an identifier that is unique per box.
 
-That signature is what this checks. Nothing raises when it happens; the data
-is simply wrong. Nine prior bugs in this project reported success while
-writing wrong data, which is why the instrument exists before the fix does.
+Nothing raises when it happens; the data is simply wrong. Nine prior bugs in
+this project reported success while writing wrong data, which is why the
+instrument exists before the fix does.
 
-CHECKED      chassis_id, serial — unique per physical box.
-NOT CHECKED  base_mac. A device with two NICs legitimately carries two
-             hardware MACs; flagging that would cry wolf on the first
-             multi-homed box. mgmt_ip is corroborating only and can never
-             establish identity.
+That signature is check A. It misses the sysname-only merge, measured on
+hardware 2026-09-13: the unmatched chassis claim is DISCARDED during
+resolution rather than stored, so the absorbing row ends up carrying one
+chassis_id, not two. Check B reads link_evidence, which keeps what identity
+threw away — a peer chassis a reporter observed and the peer does not own.
 
-BLIND SPOT, deliberate and worth knowing. Two devices whose ONLY resolving
-claim is a sysName merge into one device carrying ZERO chassis claims, and
-this check cannot see it. GENERIC_SYSNAMES is the only guard there. A clean
-run here does not mean merges are impossible.
+CHECKED      A: chassis_id, serial — unique per physical box.
+             B: an observed peer_chassis that the peer does not store, where
+             that peer already carries a chassis_id of its own.
+NOT CHECKED  base_mac as a duplicate signal. A device with two NICs
+             legitimately carries two hardware MACs; flagging that would cry
+             wolf on the first multi-homed box. mgmt_ip is corroborating only
+             and can never establish identity.
+
+BLIND SPOT, narrower than it was. A merge where NEITHER device ever carried a
+chassis is still invisible: with nothing stored there is nothing for an
+observation to contradict, and check B excludes those peers deliberately to
+stay quiet on vendors that omit lldpLocChassisId (RouterOS does). They are
+reported as informational lines, not violations. GENERIC_SYSNAMES remains the
+only guard for that case.
 
 Run:
     .venv/bin/python scripts/check_identity.py
-    .venv/bin/python scripts/check_identity.py --selftest
+    .venv/bin/python scripts/check_identity.py --selftest    # both checks
     .venv/bin/python scripts/check_identity.py --json
 
-Exit 0 clean · 1 violation or failed selftest · 2 usage/connection error.
+Exit 0 clean · 1 either check found rows or either selftest failed
+       · 2 usage/connection error.
 """
 from __future__ import annotations
 
@@ -42,6 +53,10 @@ from psycopg.rows import dict_row
 # Identifiers that name one physical box. Two distinct values of one of
 # these on a single device row means two boxes were collapsed into one.
 UNIQUE_PER_BOX = ["chassis_id", "serial"]
+
+# Types a chassis value could legitimately be stored under. Used only to ask
+# "does the peer own this identifier at all", never to resolve identity.
+CHASSIS_MATCH_TYPES = ["chassis_id", "serial", "base_mac"]
 
 # A locally-administered MAC nobody will ever really own. Used only by
 # --selftest, and always rolled back.
@@ -76,10 +91,108 @@ HAVING count(DISTINCT i.id_value) > 1
  ORDER BY d.display_name, i.id_type
 """
 
+# Check B — a peer chassis that was observed and never stored.
+#
+# An evidence row exists only if both endpoint devices exist, so the peer
+# resolved to SOME device. If that device does not carry the chassis the
+# reporter saw, the claim was discarded during resolution. That is the
+# sysname-only merge.
+#
+# The EXISTS clause on chassis_id is what makes this precise rather than
+# noisy. A device that never advertises its own chassis — RouterOS omits
+# lldpLocChassisId, and profile routeros_partial reproduces it — always
+# produces an orphan, legitimately. Requiring the peer to already hold a
+# DIFFERENT chassis_id narrows this to two observers asserting two chassis
+# for one box with one of them dropped. Measured 2026-09-13: br-rtr-02 is
+# the legitimate case and is excluded; a merged device is caught.
+
+ORPHAN_SQL = """
+WITH ev AS (
+  SELECT e.source::text                        AS source,
+         e.observed_at,
+         lower(e.raw_claim->>'peer_chassis')   AS peer_chassis,
+         e.reporter_device_id,
+         CASE WHEN l.device_a = e.reporter_device_id THEN l.device_b
+              ELSE l.device_a END              AS peer_device_id
+    FROM link_evidence e
+    JOIN link l ON l.link_id = e.link_id
+   WHERE l.tenant_id = %s
+     AND e.raw_claim->>'peer_chassis' IS NOT NULL
+     AND e.reporter_device_id IS NOT NULL
+)
+SELECT p.display_name         AS peer,
+       p.device_id::text      AS peer_device_id,
+       r.display_name         AS reporter,
+       ev.peer_chassis        AS observed,
+       ev.source,
+       ev.observed_at,
+       (SELECT array_agg(i.id_value ORDER BY i.id_value)
+          FROM device_identity i
+         WHERE i.device_id = ev.peer_device_id
+           AND i.tenant_id = %s
+           AND i.id_type = 'chassis_id')       AS stored
+  FROM ev
+  JOIN device p ON p.device_id = ev.peer_device_id
+  LEFT JOIN device r ON r.device_id = ev.reporter_device_id
+ WHERE NOT EXISTS (SELECT 1 FROM device_identity i
+                    WHERE i.device_id = ev.peer_device_id
+                      AND i.tenant_id = %s
+                      AND i.id_type = ANY(%s)
+                      AND lower(i.id_value) = ev.peer_chassis)
+   AND EXISTS (SELECT 1 FROM device_identity i
+                WHERE i.device_id = ev.peer_device_id
+                  AND i.tenant_id = %s
+                  AND i.id_type = 'chassis_id')
+ ORDER BY peer, observed
+"""
+
+# Informational, never a violation. A peer carrying no chassis_id of its
+# own. Legitimate for vendors that omit lldpLocChassisId. Counted so the
+# exclusion in check B is visible rather than silent.
+
+INFO_SQL = """
+WITH ev AS (
+  SELECT lower(e.raw_claim->>'peer_chassis')   AS peer_chassis,
+         e.reporter_device_id,
+         CASE WHEN l.device_a = e.reporter_device_id THEN l.device_b
+              ELSE l.device_a END              AS peer_device_id
+    FROM link_evidence e
+    JOIN link l ON l.link_id = e.link_id
+   WHERE l.tenant_id = %s
+     AND e.raw_claim->>'peer_chassis' IS NOT NULL
+     AND e.reporter_device_id IS NOT NULL
+)
+SELECT DISTINCT p.display_name AS peer, ev.peer_chassis AS observed
+  FROM ev JOIN device p ON p.device_id = ev.peer_device_id
+ WHERE NOT EXISTS (SELECT 1 FROM device_identity i
+                    WHERE i.device_id = ev.peer_device_id
+                      AND i.tenant_id = %s
+                      AND i.id_type = ANY(%s)
+                      AND lower(i.id_value) = ev.peer_chassis)
+   AND NOT EXISTS (SELECT 1 FROM device_identity i
+                    WHERE i.device_id = ev.peer_device_id
+                      AND i.tenant_id = %s
+                      AND i.id_type = 'chassis_id')
+ ORDER BY peer
+"""
+
 
 def violations(conn, tenant: str) -> list[dict]:
     with conn.cursor() as cur:
         cur.execute(VIOLATION_SQL, (tenant, UNIQUE_PER_BOX))
+        return [dict(r) for r in cur.fetchall()]
+
+
+def orphans(conn, tenant: str) -> list[dict]:
+    with conn.cursor() as cur:
+        cur.execute(ORPHAN_SQL,
+                    (tenant, tenant, tenant, CHASSIS_MATCH_TYPES, tenant))
+        return [dict(r) for r in cur.fetchall()]
+
+
+def unowned_no_chassis(conn, tenant: str) -> list[dict]:
+    with conn.cursor() as cur:
+        cur.execute(INFO_SQL, (tenant, tenant, CHASSIS_MATCH_TYPES, tenant))
         return [dict(r) for r in cur.fetchall()]
 
 
@@ -143,6 +256,71 @@ def selftest(conn, tenant: str) -> bool:
     return fired and clean
 
 
+def selftest_b(conn, tenant: str) -> bool:
+    """
+    Prove check B fires before trusting a clean result from it.
+
+    Rewrites one evidence row's peer_chassis to a value nobody owns, re-runs
+    the check, and rolls back. The target peer must already carry exactly one
+    chassis_id — a peer with none is the legitimate case check B excludes, and
+    a peer already orphaned would report a false failure.
+    """
+    before = {(r["peer_device_id"], r["observed"])
+              for r in orphans(conn, tenant)}
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT e.evidence_id::text AS evidence_id,
+                      CASE WHEN l.device_a = e.reporter_device_id
+                           THEN l.device_b ELSE l.device_a END::text
+                          AS peer_device_id
+                 FROM link_evidence e
+                 JOIN link l ON l.link_id = e.link_id
+                WHERE l.tenant_id = %s
+                  AND e.raw_claim->>'peer_chassis' IS NOT NULL
+                  AND e.reporter_device_id IS NOT NULL
+                  AND (SELECT count(DISTINCT i.id_value)
+                         FROM device_identity i
+                        WHERE i.device_id = CASE
+                                  WHEN l.device_a = e.reporter_device_id
+                                  THEN l.device_b ELSE l.device_a END
+                          AND i.tenant_id = %s
+                          AND i.id_type = 'chassis_id') = 1
+                LIMIT 1""",
+            (tenant, tenant))
+        row = cur.fetchone()
+    if not row:
+        print("  SELFTEST B INCONCLUSIVE: no evidence row whose peer carries "
+              "exactly one chassis_id.")
+        return False
+
+    target_evidence = row["evidence_id"]
+    target_peer = row["peer_device_id"]
+    if (target_peer, SELFTEST_VALUE) in before:
+        print("  SELFTEST B INCONCLUSIVE: chosen peer is already orphaned.")
+        return False
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """UPDATE link_evidence
+                  SET raw_claim = jsonb_set(raw_claim, '{peer_chassis}',
+                                            to_jsonb(%s::text))
+                WHERE evidence_id = %s""",
+            (SELFTEST_VALUE, target_evidence))
+
+    after = {(r["peer_device_id"], r["observed"])
+             for r in orphans(conn, tenant)}
+    conn.rollback()
+    restored = {(r["peer_device_id"], r["observed"])
+                for r in orphans(conn, tenant)}
+
+    fired = (target_peer, SELFTEST_VALUE) in after
+    clean = restored == before
+    print(f"  synthetic orphan chassis on {target_peer[:8]} -> "
+          f"detected={fired}  rolled_back_clean={clean}")
+    return fired and clean
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--env", default=".env")
@@ -161,11 +339,15 @@ def main() -> int:
 
     with psycopg.connect(dsn, row_factory=dict_row) as conn:
         found = violations(conn, tenant)
+        orphaned = orphans(conn, tenant)
+        no_chassis = unowned_no_chassis(conn, tenant)
         ctx = context(conn, tenant)
 
         if args.json:
-            print(json.dumps({"violations": found, **ctx}, indent=2,
-                             default=str))
+            print(json.dumps({"violations": found,
+                              "orphan_peer_chassis": orphaned,
+                              "peers_without_chassis": no_chassis,
+                              **ctx}, indent=2, default=str))
         else:
             print("=" * 62)
             print("  IDENTITY CHECK — silent device merge")
@@ -181,10 +363,22 @@ def main() -> int:
                     print(f"        {val}")
             if not found:
                 print("  clean — no device carries two hard identities")
-                print("  (does NOT rule out a sysname-only merge; see docstring)")
+                print("  (check A alone cannot see a merge that leaves one "
+                      "chassis; check B below covers the contradicted case)")
+            print(f"  ORPHAN PEER CHASSIS     : {len(orphaned)}")
+            for o in orphaned:
+                stored = ", ".join(o["stored"] or []) or "none"
+                print(f"    {o['peer']} was seen as {o['observed']} by "
+                      f"{o['reporter'] or 'unknown'} ({o['source']})")
+                print(f"        but stores: {stored}")
+            if not orphaned:
+                print("  clean — every observed peer chassis is stored")
+            for u in no_chassis:
+                print(f"  info: {u['peer']} carries no chassis_id of its own "
+                      f"(seen as {u['observed']}) — excluded from check B")
             print("=" * 62)
 
-        rc = 1 if found else 0
+        rc = 1 if found or orphaned else 0
 
         if args.selftest:
             print("  selftest:")
@@ -193,6 +387,11 @@ def main() -> int:
                 rc = 1
             else:
                 print("  selftest passed — the check fires on a real duplicate")
+            if not selftest_b(conn, tenant):
+                print("  SELFTEST B FAILED — check B cannot be trusted")
+                rc = 1
+            else:
+                print("  selftest B passed — check B fires on a dropped claim")
 
     return rc
 
