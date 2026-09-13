@@ -437,7 +437,84 @@ is green end to end.
 
 No schema change. The data was already being stored.
 
+**The veto, implemented and measured, 2026-09-13 04:30-05:20 UTC.** Committed
+as `4bd0028`, in `resolve_peer_device()` (`collector/topology.py`), **not**
+`resolve_device()`.
+
+**Next-session item 2 named the wrong function.** `identity-design.md` and the
+item both place the veto in `resolve_device()`. The failure reproduced on
+hardware lives in `resolve_peer_device()`: it builds candidates in strength
+order (`chassis_id`, `base_mac`, `sysname`) and returns on the first hit, so a
+neighbour with an unknown chassis and a known sysName resolves to the wrong
+device and the chassis claim is never written. `resolve_device()` was not
+touched. Bug #8 recurring one layer up: two implementations, one fixed, one
+not.
+
+**Pre-state, measured in this session.** Pi renamed to `optiplex`, reset, both
+inventories polled: 19 devices; `dc:a6:32:ee:99:a9` stored by no device;
+phantom `optiplex <-> rb951g-lab` at 0.65, device fidelity; `ORPHAN PEER
+CHASSIS: 1`, exit 1.
+
+**The first veto was too broad, and the scorer did not catch it.** Rule: any
+weak hit after a stronger miss falls through to a placeholder. Result: **21
+devices**. It split `br-rtr-02` as well as the Pi. `br-rtr-02` runs profile
+`routeros_partial`, stores no chassis of its own, so its chassis lookup misses
+for a legitimate reason while its sysName hits. Recall stayed 88.9%, precision
+100%, false links 0, while **port pairs quietly fell from 16/16 to 15/15** and
+fidelity from 13/13 to 12/13. A pair left the scope instead of failing. Tenth
+entry for the list of changes that report success while writing wrong data.
+
+**The discriminator that fixed it is the one check B already uses.** Veto only
+when a chassis MAC was observed and missed, the hit came from `sysname`, and
+**the matched device stores a `chassis_id` of its own**. A vendor that never
+advertises a chassis has nothing to contradict, so it merges as before.
+`base_mac` hits are excluded on purpose: that candidate exists for vendors
+that use a port MAC as the chassis id, and vetoing it would break the case it
+was added to handle.
+
+**Post-state, same instrument:** 20 devices; `dc:a6:32:ee:99:a9` stored by an
+unpolled device; no phantom; real `rb951g-lab <-> Pi` link at 0.8; `ORPHAN
+PEER CHASSIS: 0`, exit 0; `br-rtr-02` info line back; scorer 88.9% / 100%, 0
+false links, port pairs 16/16, fidelity 13/13. Hostname restored,
+`make check-scorer` green on all seven conditions, `make check` green with
+both selftests firing and rolling back clean. Timer stopped 04:30 to 05:15
+UTC.
+
+**Assertion 2 cannot be checked by display name.** During the test two device
+rows legitimately carry `display_name = 'optiplex'`: the real box, and the Pi
+placeholder, because the Pi really is named optiplex then. The phantom is
+identified by stored chassis, as a link to the device holding
+`e4:b9:7a:ec:01:95`; and the correct link, to the device holding
+`dc:a6:32:ee:99:a9`, must be *present*. A veto that deleted the adjacency
+outright would satisfy "no phantom" while destroying real topology.
+
+**Three findings recorded, none fixed.**
+
+1. **The neighbour path never records what it observed when it resolves to an
+   existing device.** `resolve_device()`'s comment, "Attach every claim,
+   including ones that missed. Next poll they become hits, that is how the
+   graph self-corrects", has no equivalent in `resolve_peer_device()`.
+   Identifiers are written only on the placeholder-creation path. The veto
+   does not depend on this; the graph's self-correction for neighbours does.
+2. **`resolve_peer_device()` has no multi-match warning.** First hit wins,
+   silently. `resolve_device()` at least logs "Manual merge required".
+3. **`make check-scorer` does not stop `nms-collector.timer` before
+   resetting.** It calls `reset_data.sh --yes` directly, so a collector cycle
+   can fire mid-reset. Same hole that produced the accidental wipe on
+   2026-09-01. An interactive prompt was never the interlock, and `--yes`
+   removes even that. Stop the timer by hand until the target does it.
+
+**`claude/identity-design.md` does not exist on the OptiPlex.** It is present
+only in the claude.ai project copy, which this file outranks. Code is the rank
+authority: `IDENTITY_PRECEDENCE` in `collector/store.py`.
+
 ### Next session — in order
+
+**Item 2 below is done, `4bd0028`, 2026-09-13, and item 3 is done with it
+(`make check-scorer` green, seven of seven). Both are kept for their
+reasoning, but the function named in item 2 is wrong. See the session record
+directly above.**
+
 
 **Step 1 of the previous plan is answered.** Both eero placeholders carry a
 `chassis_id` claim at confidence 0.8 (`0c:93:a5:24:86:e0` and
