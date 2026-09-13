@@ -402,6 +402,29 @@ stopped from 01:55 to 02:16 UTC for the duration of the test.
 than the `GENERIC_SYSNAMES` route and does not risk committing a
 temporary change to `collector/store.py`.
 
+**Check B built and accepted the same night** (`bce6abe`). The detector that
+was missing now reads `link_evidence`: a `peer_chassis` a reporter observed
+that the peer does not store, where that peer already carries a *different*
+`chassis_id`. Two observers asserting two chassis for one box, with one of
+them dropped.
+
+Designed against live data before a line of code was written. The first
+read-only run returned one row that was not a merge: `br-rtr-02`, profile
+`routeros_partial`, which omits `lldpLocChassisId` and so never stores a
+chassis of its own. That produced the discriminator — require the peer to
+already hold a `chassis_id` — which excludes the vendor case by construction.
+Those peers are reported as an informational line, never a violation.
+
+Accepted against the real merge rather than a synthetic one. With the Pi
+renamed to `optiplex` and the database re-polled, `check_identity.py`
+reported `ORPHAN PEER CHASSIS: 1` — *optiplex was seen as
+dc:a6:32:ee:99:a9 by rb951g-lab, but stores e4:b9:7a:ec:01:95* — and exited
+1, while check A reported `VIOLATIONS: 0` on that same database. After
+restore it exits 0, both selftests fire and roll back clean, and `make check`
+is green end to end.
+
+No schema change. The data was already being stored.
+
 ### Next session — in order
 
 **Step 1 of the previous plan is answered.** Both eero placeholders carry a
@@ -421,15 +444,17 @@ the 2026-09-13 session record.
 1. **Superseded 2026-09-13 — do not drop `eero` from `GENERIC_SYSNAMES`.**
    The merge reproduces with no code edit at all: set the Raspberry Pi's
    hostname to `optiplex`, reset, re-poll. Measured result was 19 devices,
-   no Pi row, and a phantom `optiplex <-> rb951g-lab` link at 0.65, with
-   `check_identity.py` reporting clean. Fix the detector before or alongside
-   the veto: cross-check `link_evidence.raw_claim -> peer_chassis` against
-   `device_identity`. A peer chassis present in evidence and belonging to no
-   device is exactly this bug. Read-only, no schema change.
+   no Pi row, and a phantom `optiplex <-> rb951g-lab` link at 0.65. That
+   procedure is now the verification method for the veto in step 2.
+   The detector half is **done** (`bce6abe`, open question 20): check B
+   catches this shape and exits 1, where check A reports clean.
 2. Implement the unmatched-identifier veto in `resolve_device()`. Verify with
    the Pi hostname method rather than the denylist: set the Pi to `optiplex`,
-   reset, re-poll. **The Pi must now get its own device row — 20 devices, and
-   no `optiplex <-> rb951g-lab` link.** Restore the hostname afterwards. Note
+   reset, re-poll. **Three assertions, all machine-checkable: 20 devices, no
+   `optiplex <-> rb951g-lab` link, and `check_identity.py` reporting
+   `ORPHAN PEER CHASSIS: 0` at exit 0.** The third is the one that proves the
+   veto did the work rather than something else masking it, and it did not
+   exist before `bce6abe`. Restore the hostname afterwards. Note
    `record_reachability` lives in the same file and runs in the API process —
    `sudo systemctl restart nms-api.service` after any edit to
    `collector/store.py`, or the running service keeps the old module.
@@ -1416,6 +1441,28 @@ start is attempted.
     Proven 2026-09-13 against a live merge. The script's own output already
     says so. The data to close it is already stored in
     `link_evidence.raw_claim`.
+
+    **RESOLVED 2026-09-13** by `bce6abe`. Check B reads
+    `link_evidence.raw_claim -> peer_chassis` and requires the peer to
+    already carry a different `chassis_id`, which excludes vendors that omit
+    `lldpLocChassisId`. Verified against the real merge at exit 1 and against
+    the healthy database at exit 0, with a selftest that fires and rolls
+    back. What stays open is narrower and is stated in the docstring: a merge
+    where NEITHER device ever carried a chassis is still invisible, because
+    there is nothing stored for an observation to contradict.
+    `GENERIC_SYSNAMES` remains the only guard for that case.
+
+21. **The fleet generator invents neighbour chassis MACs unrelated to the
+    device's own.** Found 2026-09-13 while designing check B. `br-sw-01`
+    reports `peer_chassis 60:01:79:6d:fc:7e` for `br-rtr-02`, a value absent
+    from br-rtr-02's eight `base_mac` rows and absent from `sim/` on disk, so
+    it is synthesised at generation time. On real hardware a device's
+    transmitted LLDP chassis ID is one of its own MACs, so a neighbour-
+    reported chassis resolves; here it never can. Consequence: the simulated
+    fleet cannot exercise the path where a neighbour-reported chassis matches
+    a stored identifier, for any `routeros_partial` device. Harmless today —
+    check B reports it as informational — but it is a generator fidelity gap
+    of the same family as bugs 4, 5 and 6.
 
 ---
 
