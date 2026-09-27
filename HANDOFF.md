@@ -1688,3 +1688,55 @@ with root cause and audit trail** — is the sellable claim.
 
 **Implement the identity veto rule before Phase 2.** Direction inference
 leans hard on device rows being right.
+
+---
+
+## Found 2026-09-27: uncommitted work from the 2026-09-13 session
+
+Found while testing pyright. Both files were written 2026-09-13 21:09:50 UTC,
+7 minutes after `529dce9`. Neither was committed or recorded here.
+
+- `sim/genfleet.py` (modified): the `--down` expectation now records
+  `out_of_scope` and withholds `root_cause` for a failure outside the
+  vantage's component. Only the expectation JSON changes; `.snmprec`
+  generation is untouched. Reviewed: correct. `--down` already exits without
+  a vantage (lines 440-442).
+- `scripts/incidents.py` (untracked): root-cause engine prototype. Down =
+  `reach_status` not ok. Only the vantage's component is in scope; a failure
+  elsewhere is out of scope, never collateral. An incident is a connected
+  group of down devices. A root cause is a down device still touching a
+  device the vantage reaches; the rest is suppressed. Stale links count.
+- Scope limit (stated in its docstring): direction is derived from the
+  vantage at query time, not from a stored dependency table. Correct for
+  scenario 1, tree topology, one collector. Wrong for mesh, redundant paths
+  and scenario 2. It runs ahead of Phase 2.0 and 2.1.
+- Backup: `~/nms-wip-backup-2026-09-13/`. sha256 genfleet.py `6b186f32c29e`,
+  incidents.py `dc63d61e0404`.
+
+Open decision: keep `incidents.py` as a scenario-1 prototype ahead of Phase
+2.0, or park it until the dependency layer exists.
+
+Before any commit of these two: `make check-scorer` (sim/ changed). Commit
+them separately from `pyrightconfig.json`.
+
+## Added 2026-09-27: pyright
+
+- pyright 1.1.414 via pipx (`~/.local/bin`), outside `.venv`.
+  `pyrightconfig.json` (untracked) points it at `.venv`.
+  Baseline: 20 errors (collector 2, server 1, scripts 17).
+- Real: `server/ingest.py:99` `collector_key_id: str` should be
+  `str | None`; `--direct` passes None. Timer and gate use API mode
+  (verified, no `--direct` in any script or unit).
+- Real: `scripts/create_collector_key.py` 60/73/79 subscript `fetchone()`
+  with no None check.
+- The other 16: one cause, `dict_row` typing on `connect()`.
+- Claude Code plugin `pyright-lsp`: not installed yet.
+- Plugins rejected after reading their files: `security-guidance` (its Stop
+  hook re-wakes the agent to edit after a step), `commit-commands`,
+  `feature-dev`. Held: `code-review`, `pr-review-toolkit` (subagent output
+  is not visible to the reviewer).
+- Side effect: the apt install of pipx pulled 51 packages into system python
+  (numpy, pytest and others). psycopg is still absent there.
+
+Open: CLAUDE.md does not forbid editing `/etc/systemd/system` directly,
+`sudo`, `docker compose down` or `docker volume rm`.
