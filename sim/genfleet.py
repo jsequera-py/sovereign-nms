@@ -446,6 +446,12 @@ def main() -> int:
         collateral = sorted((before - after) - set(down))
     offline = set(down) | set(collateral)
 
+    # A failure outside the vantage's component is something this vantage
+    # cannot reason about. It is not collateral and it has no root cause
+    # here. Stated so the engine can be graded on refusing to invent one.
+    in_scope = reachable_from(vantage, links, set()) if vantage else set()
+    out_of_scope = sorted(d for d in down if d not in in_scope)
+
     outdir = Path(args.out)
     outdir.mkdir(parents=True, exist_ok=True)
     for old in outdir.glob("*.snmprec"):
@@ -473,7 +479,9 @@ def main() -> int:
         "topology": args.topology,
         "vantage": vantage,
         "down": down,
-        "root_cause": down[0] if len(down) == 1 else None,
+        "root_cause": (down[0] if len(down) == 1
+                       and down[0] not in out_of_scope else None),
+        "out_of_scope": out_of_scope,
         "collateral": collateral,
         "offline": sorted(offline),
     }
