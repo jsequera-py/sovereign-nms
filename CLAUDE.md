@@ -123,3 +123,10 @@ command printed nothing, say so and show the exit code.
   worth less than no result, because a failure becomes unattributable.
 - State time, dates and machine state only from output you actually
   observed. `date -u` costs nothing.
+- **Nothing shipped reaches the network on its own.** No CDN, web fonts,
+  analytics, telemetry, update checks or phone-home in `server/`,
+  `collector/` or `web/`. Air-gapped operation is a product claim, and
+  customer network data never leaves the customer.
+- **No new dependency without a step that names it.** A pip package,
+  Docker image or model is a licence obligation as well as code. The step
+  output records its name, version and licence.

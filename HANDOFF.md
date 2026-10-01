@@ -1740,3 +1740,18 @@ them separately from `pyrightconfig.json`.
 
 Open: CLAUDE.md does not forbid editing `/etc/systemd/system` directly,
 `sudo`, `docker compose down` or `docker volume rm`.
+
+## Open 2026-09-30: legal items before first sale
+
+Not agent work. Recorded so they are not discovered at the first contract.
+
+- Licence inventory: `.venv`, the Docker images and the 8B model.
+  TimescaleDB is partly under the Timescale License, not Apache; psycopg is
+  LGPL. One step, owner Jesus.
+- Software licence agreement with a limitation of liability and a warranty
+  disclaimer. A false link can suppress a real outage; the contract is the
+  legal control behind "precision over recall". Needs a lawyer.
+- Data statement: on-prem, no phone-home, the customer controls all network
+  data. Hostnames, MACs and syslog can identify people.
+- Remote support: a written access agreement before any SSH into a customer
+  install.
