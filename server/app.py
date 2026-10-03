@@ -29,6 +29,7 @@ from psycopg.rows import dict_row
 
 from common.wire import WIRE_VERSION, device_from_json
 from server import ingest
+from server import incidents as incident_engine
 
 log = logging.getLogger("api")
 
@@ -243,5 +244,20 @@ def health(caller: Caller = Depends(authenticate), conn=Depends(db)):
         "minutes_since_last_run": stale_minutes,
     }
 
+
+# ------------------------------------------------------------------
+# Incidents
+# ------------------------------------------------------------------
+
+_VANTAGE = os.environ.get("NMS_VANTAGE", "srv-mon-01")
+
+
+@app.get("/v1/incidents")
+def incidents(vantage: str | None = None,
+              caller: Caller = Depends(authenticate), conn=Depends(db)):
+    """One incident per connected group of down devices: root cause,
+    suppressed set, evidence trail. Tenant from the credential only.
+    Engine and its scope limits: server/incidents.py."""
+    return incident_engine.compute(conn, caller.tenant_id, vantage or _VANTAGE)
 
 app.mount("/ui", StaticFiles(directory=Path(__file__).resolve().parent.parent / "web", html=True), name="ui")
